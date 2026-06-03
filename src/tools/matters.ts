@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
-import { clioGet, clioPost, ClioApiError } from "../utils/clioClient.js";
+import { clioGet, clioPost, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 
 const MATTER_LIST_FIELDS =
@@ -17,20 +17,24 @@ export function registerMatterTools(server: McpServer): void {
       inputSchema: {
         status: z.enum(["open", "pending", "closed"]).optional().describe("Filter by matter status"),
         limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1-200)"),
+        responsible_attorney_id: z.number().int().positive().optional().describe("Filter by responsible attorney Clio user ID (Austin Corbett = 344920268)"),
+        page_token: z.string().optional().describe("Cursor from a previous list_matters response to fetch the next page"),
       },
     },
-    async ({ status, limit }) => {
+    async ({ status, limit, responsible_attorney_id, page_token }) => {
       try {
         const params: Record<string, string> = {
           fields: MATTER_LIST_FIELDS,
           limit: String(limit),
         };
         if (status) params["status"] = status;
+        if (responsible_attorney_id) params["responsible_attorney_id"] = String(responsible_attorney_id);
+        if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/matters.json", params);
         const matters = data.data as any[];
 
-        await appendAuditLog({ tool: "list_matters", args: { status, limit }, outcome: "success", result_count: matters?.length ?? 0 });
+        await appendAuditLog({ tool: "list_matters", args: { status, limit, responsible_attorney_id, page_token }, outcome: "success", result_count: matters?.length ?? 0 });
 
         if (!matters || matters.length === 0) {
           return { content: [{ type: "text", text: "No matters found." }] };
@@ -47,11 +51,13 @@ export function registerMatterTools(server: McpServer): void {
           close_date: m.close_date ?? null,
         }));
 
+        const next_page_token = extractNextPageToken(data.meta);
+
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify({ matters: result, next_page_token }, null, 2) }],
         };
       } catch (err: any) {
-        await appendAuditLog({ tool: "list_matters", args: { status, limit }, outcome: "error", error_message: err.message });
+        await appendAuditLog({ tool: "list_matters", args: { status, limit, responsible_attorney_id, page_token }, outcome: "error", error_message: err.message });
         return {
           content: [{ type: "text", text: `Error: ${err.message}` }],
           isError: true,
@@ -115,7 +121,7 @@ export function registerMatterTools(server: McpServer): void {
         status: z.enum(["open", "pending", "closed"]).default("open").describe("Initial matter status"),
         open_date: z.string().date().optional().describe("Open date (YYYY-MM-DD); defaults to today if omitted"),
         billable: z.boolean().default(true).describe("Whether this matter is billable (default true)"),
-        responsible_attorney_id: z.number().int().positive().optional().describe("Clio user ID of the responsible attorney"),
+        responsible_attorney_id: z.number().int().positive().optional().describe("Clio user ID of the responsible attorney (Austin Corbett = 344920268)"),
         originating_attorney_id: z.number().int().positive().optional().describe("Clio user ID of the originating attorney"),
         client_reference: z.string().optional().describe("External reference string for cross-linking with other systems"),
       },
