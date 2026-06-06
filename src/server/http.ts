@@ -33,6 +33,20 @@ interface SessionRecord {
 
 const sessions = new Map<string, SessionRecord>();
 
+// Allow-list of Host header values accepted by the MCP endpoint (DNS-rebinding defence).
+// Derived from MCP_BASE_URL + localhost, extensible via MCP_ALLOWED_HOSTS (comma-separated).
+function getAllowedHosts(): string[] {
+  const hosts = new Set<string>();
+  const base = (process.env.MCP_BASE_URL ?? "").trim();
+  if (base) { try { hosts.add(new URL(base).host); } catch { /* ignore malformed */ } }
+  for (const h of (process.env.MCP_ALLOWED_HOSTS ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean)) hosts.add(h);
+  const port = process.env.PORT ?? "3000";
+  hosts.add(`127.0.0.1:${port}`);
+  hosts.add(`localhost:${port}`);
+  return [...hosts];
+}
+
 function createMcpServer(): McpServer {
   const server = new McpServer({ name: "clio-mcp", version: pkg.version });
   registerAuthTools(server);
@@ -121,6 +135,8 @@ app.all("/mcp", requireApiKey, express.json(), async (req, res) => {
 
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
+        enableDnsRebindingProtection: process.env.MCP_DNS_REBINDING_PROTECTION !== "off",
+        allowedHosts: getAllowedHosts(),
         onsessioninitialized: async (sessionId) => {
           record.mcpServer = createMcpServer();
           sessions.set(sessionId, record);
@@ -254,6 +270,16 @@ app.get("/oauth/callback", async (req, res) => {
 });
 
 export function startHttpServer(): void {
+  // Refuse to run exposed (non-local MCP_BASE_URL) without an API key.
+  const baseUrl = (process.env.MCP_BASE_URL ?? "").trim();
+  let host = "";
+  try { host = new URL(baseUrl).hostname; } catch { /* ignore */ }
+  const isLocal = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  if (!isLocal && !process.env.MCP_API_KEY) {
+    console.error("[startup] Fatal: MCP_API_KEY is required when MCP_BASE_URL is non-local. Set a key or bind to localhost.");
+    process.exit(1);
+  }
+
   const port = parseInt(process.env.PORT ?? "3000", 10);
   app.listen(port, () => {
     const baseUrl = (process.env.MCP_BASE_URL ?? `http://127.0.0.1:${port}`).trim();

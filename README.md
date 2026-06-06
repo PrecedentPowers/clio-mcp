@@ -420,10 +420,13 @@ All settings are passed as environment variables (in your Claude Desktop config 
 | `TRANSPORT` | No | `http` | `stdio` or `http`. Defaults to `http` at v2.0.0; set to `stdio` for the pre-v2 behavior |
 | `MCP_BASE_URL` | HTTP mode | — | Public base URL of this server (e.g. `http://127.0.0.1:3000`). Used for the OAuth redirect |
 | `PORT` | No | `3000` | HTTP listen port (HTTP mode only) |
-| `MCP_API_KEY` | No | — | If set, the HTTP server requires this bearer token in the `Authorization` header. Recommended for any non-localhost deployment |
+| `MCP_API_KEY` | HTTP non-local | — | Bearer token required in the `Authorization` header. **Required** when `MCP_BASE_URL` is non-localhost — the server refuses to start without it. Optional for localhost-only deployments |
+| `MCP_ALLOWED_HOSTS` | No | derived | Extra `Host` header values to accept (comma-separated). The allow-list already includes `MCP_BASE_URL`'s host plus `127.0.0.1`/`localhost`; add entries here when running behind a reverse proxy |
+| `MCP_DNS_REBINDING_PROTECTION` | No | on | DNS-rebinding protection is enabled by default. Set to `off` only if a proxy rewrites the `Host` header in ways `MCP_ALLOWED_HOSTS` cannot cover |
 | `ENCRYPTION_KEY` | No | auto-generated | Overrides OS keychain. Required only for CI/headless installs where no keychain is available. Must be a 64-character hex string. |
 | `CLIO_REDIRECT_PORT` | No | `5678` | Local port for the OAuth callback (stdio mode). Change if 5678 is in use on your machine |
 | `CLIO_REGION` | No | `us` | `us` or `eu`. Controls the default Clio API and auth base URLs |
+| `CLIO_DEFAULT_ATTORNEY_ID` | No | — | Default responsible-attorney Clio user ID. Shown in matter tool hints; auto-applied to `create_matter` **only in stdio (single-user) mode** when `responsible_attorney_id` is omitted (recorded in the audit log). Never auto-applied in HTTP multi-user mode |
 | `CLIO_API_BASE` | No | `https://app.clio.com/api/v4` | Override for Clio EU, Canada, or Australia (e.g., `https://eu.app.clio.com/api/v4`) |
 | `CLIO_AUTH_URL` | No | `https://app.clio.com/oauth/authorize` | OAuth authorization endpoint |
 | `CLIO_TOKEN_URL` | No | `https://app.clio.com/oauth/token` | OAuth token endpoint |
