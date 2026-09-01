@@ -39,7 +39,7 @@ function makeRawMatter(overrides: Record<string, unknown> = {}) {
     display_number: "00001-001",
     description: "Test matter",
     status: "open",
-    client: { id: 10, name: "Acme Corp" },
+    client: { id: 10, name: "Acme Corp", date_of_birth: "1990-05-04" },
     practice_area: { id: 20, name: "Litigation" },
     open_date: "2026-01-01",
     close_date: null,
@@ -103,7 +103,7 @@ describe("runClioExport", () => {
         display_number: "00001-001",
         description: "Test matter",
         status: "open",
-        client: { id: 10, name: "Acme Corp" },
+        client: { id: 10, name: "Acme Corp", date_of_birth: "1990-05-04" },
         practice_area: { id: 20, name: "Litigation" },
         open_date: "2026-01-01",
         close_date: null,
@@ -137,6 +137,20 @@ describe("runClioExport", () => {
     expect(mockAppendAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({ tool: "clio_export_cli", outcome: "success", result_count: 2 }),
     );
+  });
+
+  it("maps a client without a date_of_birth key (company client) to date_of_birth: null", async () => {
+    const matterCompanyClient = makeRawMatter({ client: { id: 11, name: "Acme Inc." } });
+
+    mockClioGet.mockResolvedValueOnce({ data: [matterCompanyClient], meta: {} });
+    mockExtractNextPageToken.mockReturnValueOnce(null);
+
+    const code = await runClioExport(["--out-dir", outDir]);
+
+    expect(code).toBe(0);
+
+    const page1 = JSON.parse(await fs.readFile(path.join(outDir, "page_01.json"), "utf8"));
+    expect(page1.matters[0].client).toEqual({ id: 11, name: "Acme Inc.", date_of_birth: null });
   });
 
   // ─── (b) stale page cleanup ─────────────────────────────────────────────

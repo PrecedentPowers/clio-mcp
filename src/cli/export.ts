@@ -67,7 +67,7 @@ function mapMatter(m: any) {
     display_number: m.display_number,
     description: m.description,
     status: m.status,
-    client: m.client ? { id: m.client.id, name: m.client.name } : null,
+    client: m.client ? { id: m.client.id, name: m.client.name, date_of_birth: m.client.date_of_birth ?? null } : null,
     practice_area: m.practice_area ? { id: m.practice_area.id, name: m.practice_area.name } : null,
     open_date: m.open_date,
     close_date: m.close_date ?? null,

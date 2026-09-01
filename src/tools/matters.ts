@@ -24,7 +24,7 @@ const MATTER_LIST_FIELDS =
 // arrives via `field_name`; `value` is already typed (currency→number, checkbox→boolean,
 // text→string) and is `null` (not omitted) when unset.
 export const MATTER_DETAIL_FIELDS =
-  "id,display_number,description,status,client{id,name},practice_area{id,name}," +
+  "id,display_number,description,status,client{id,name,date_of_birth},practice_area{id,name}," +
   "open_date,close_date,billable," +
   "responsible_attorney{id,name}," +
   "custom_field_values{id,value,field_type,field_name}";
@@ -122,7 +122,7 @@ export function registerMatterTools(server: McpServer): void {
           display_number: m.display_number,
           description: m.description,
           status: m.status,
-          client: m.client ? { id: m.client.id, name: m.client.name } : null,
+          client: m.client ? { id: m.client.id, name: m.client.name, date_of_birth: m.client.date_of_birth ?? null } : null,
           practice_area: m.practice_area ? { id: m.practice_area.id, name: m.practice_area.name } : null,
           open_date: m.open_date,
           close_date: m.close_date ?? null,
