@@ -23,7 +23,7 @@ const MATTER_LIST_FIELDS =
 // association on a custom_field_value (requesting it returns HTTP 400). The field name
 // arrives via `field_name`; `value` is already typed (currency→number, checkbox→boolean,
 // text→string) and is `null` (not omitted) when unset.
-const MATTER_DETAIL_FIELDS =
+export const MATTER_DETAIL_FIELDS =
   "id,display_number,description,status,client{id,name},practice_area{id,name}," +
   "open_date,close_date,billable," +
   "responsible_attorney{id,name}," +
@@ -32,7 +32,7 @@ const MATTER_DETAIL_FIELDS =
 // Flatten Clio custom_field_values into a { "Field Name": value } map.
 // Uses field_name (live-verified primary); custom_field?.name kept as a defensive
 // fallback for any future API variant. `??` preserves false / 0 / null correctly.
-function flattenCustomFields(cfvs: any[] | undefined): Record<string, unknown> {
+export function flattenCustomFields(cfvs: any[] | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const cfv of cfvs ?? []) {
     const name = cfv?.field_name ?? cfv?.custom_field?.name;
