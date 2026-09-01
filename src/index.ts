@@ -21,6 +21,11 @@ async function main() {
         process.exit(await runClioExport(process.argv.slice(3)));
     }
 
+    if (process.argv[2] === "auth-status") {
+        const { runAuthStatus } = await import("./cli/authStatus.js");
+        process.exit(await runAuthStatus(process.argv.slice(3)));
+    }
+
     const mode = (process.env.TRANSPORT ?? "http").toLowerCase();
 
     if (mode === "stdio") {
