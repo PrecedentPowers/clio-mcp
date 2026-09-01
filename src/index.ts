@@ -16,6 +16,11 @@ async function main() {
         process.exit(1);
     }
 
+    if (process.argv[2] === "clio-export") {
+        const { runClioExport } = await import("./cli/export.js");
+        process.exit(await runClioExport(process.argv.slice(3)));
+    }
+
     const mode = (process.env.TRANSPORT ?? "http").toLowerCase();
 
     if (mode === "stdio") {
