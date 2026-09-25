@@ -2,7 +2,7 @@
 
 Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) — matters, contacts, documents, tasks, calendar, and billing — without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
 
-> **TL;DR** — 26 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only — no relay server, no cloud middleman. MIT license, free forever.
+> **TL;DR** — 29 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only — no relay server, no cloud middleman. MIT license, free forever.
 
 **Who this is for:** Law firm IT, legal operations teams, tech-forward partners, and engineers at legal tech companies. If you can follow a five-step terminal install, you can use this.
 
@@ -342,7 +342,7 @@ Claude selects and calls these tools automatically based on your questions. You 
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_documents` | `matter_id`, `parent_id`, `query`, `limit`, `page_token` | Lists or full-text searches documents; at least one of `matter_id`, `parent_id`, or `query` is required; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
+| `list_documents` | `matter_id`, `parent_id`, `query`, `created_since`, `updated_since`, `limit`, `page_token` | Lists or full-text searches documents, with `created_at`, `updated_at` and `received_at`; at least one of `matter_id`, `parent_id`, or `query` is required; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
 | `get_document` | `document_id` | Returns document metadata and a direct download URL |
 | `upload_document` | `file_path`, `matter_id`, `name`, `content_type` | Uploads a local file to a matter using Clio's multipart S3 upload flow |
 
@@ -350,7 +350,7 @@ Claude selects and calls these tools automatically based on your questions. You 
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_tasks` | `matter_id`, `status` (Pending/Complete/In Progress/In Review/Draft), `due_date_start`, `due_date_end`, `limit` | Lists tasks with optional filters |
+| `list_tasks` | `matter_id`, `status` (Pending/Complete/In Progress/In Review/Draft), `complete`, `due_date_start`, `due_date_end`, `created_since`, `updated_since`, `limit`, `page_token` | Lists tasks with description, `completed_at` and timestamps; returns a paginated envelope with `next_page_token` |
 | `create_task` | `matter_id`, `name`, `description`, `priority` (High/Normal/Low), `due_date`, `assignee_id` | Creates a task on a matter; priority defaults to Normal |
 | `update_task` | `task_id`, `name`, `description`, `priority`, `due_date`, `status`, `assignee_id` | Updates one or more fields on an existing task |
 | `complete_task` | `task_id` | Marks a task as complete |
@@ -360,14 +360,15 @@ Claude selects and calls these tools automatically based on your questions. You 
 | Tool | Inputs | What it does |
 |---|---|---|
 | `list_calendars` | none | Lists calendars the user can write to; use the returned `id` as `calendar_owner_id` when creating entries |
-| `list_calendar_entries` | `from`, `to` | Lists calendar entries within a date range (YYYY-MM-DD or YYYY-MM-DDTHH:MM) |
+| `list_calendar_entries` | `from`, `to`, `matter_id`, `calendar_id`, `updated_since`, `limit`, `page_token` | Lists calendar entries within a date range (YYYY-MM-DD), optionally for one matter or calendar; returns a paginated envelope with `next_page_token`. Page size is Clio's default unless `limit` is given |
 | `create_calendar_entry` | `summary`, `start_at`, `end_at`, `calendar_owner_id`, `description`, `all_day`, `matter_id`, `location`, `send_email_notification`, `attendee_ids` | Creates a calendar entry (hearing, deadline, meeting); `start_at`/`end_at` accept date or datetime |
 
-### Time entries (3 tools)
+### Time entries and expenses (4 tools)
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_time_entries` | `matter_id`, `start_date`, `end_date`, `limit` | Lists billable time entries with optional filters |
+| `list_activities` | `matter_id`, `type` (TimeEntry/ExpenseEntry), `start_date`, `end_date`, `status` (draft/billed/unbilled/non_billable/billable), `updated_since`, `limit`, `page_token` | Lists time and expense entries on a matter with billing status, bill, activity description and expense category; paginated |
+| `list_time_entries` | `matter_id`, `start_date`, `end_date`, `limit` | **Legacy** — time entries only, no paging. Kept for compatibility; prefer `list_activities` |
 | `log_time_entry` | `matter_id`, `date`, `quantity_in_hours`, `note`, `price`, `non_billable`, `no_charge`, `activity_description_id`, `user_id` | Creates a new billable (or non-billable) time entry on a matter |
 | `create_activity` | `type`, `date`, `matter_id`, `note`, `quantity_in_hours`, `price`, `non_billable`, `no_charge`, `activity_description_id`, `user_id`, `reference`, `tax_setting` | Creates any Clio activity type — TimeEntry, ExpenseEntry, HardCostEntry, or SoftCostEntry |
 
@@ -377,11 +378,18 @@ Claude selects and calls these tools automatically based on your questions. You 
 |---|---|---|
 | `get_billing_summary` | `matter_id` | Returns total billed, outstanding balance, and last invoice date for a matter |
 
-### Notes (1 tool)
+### Notes (2 tools)
 
 | Tool | Inputs | What it does |
 |---|---|---|
+| `list_notes` | `matter_id` **or** `contact_id`, `created_since`, `updated_since`, `limit`, `page_token` | Lists notes with subject, author, the note's own date, and the body as plain text (rich-text markup is kept on `detail_html`); paginated. Ported from upstream 2.3.0 |
 | `create_note` | `matter_id`, `subject`, `body` | Creates a note on a matter; appears in Clio's matter timeline |
+
+### Communications (1 tool)
+
+| Tool | Inputs | What it does |
+|---|---|---|
+| `list_communications` | `matter_id`, `type` (EmailCommunication/PhoneCommunication), `received_since`, `received_before`, `include_body`, `body_max_chars`, `limit`, `page_token` | Lists the emails and phone calls logged in Clio's Communications log for a matter, with senders and receivers flattened to `{id, name, kind}`. Body is omitted unless `include_body` is true, and is truncated in-tool to `body_max_chars` (default 2000); paginated |
 
 ### Users (2 tools)
 

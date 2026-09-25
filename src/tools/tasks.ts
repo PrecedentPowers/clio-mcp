@@ -1,9 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
-import { clioGet, clioPost, clioPatch } from "../utils/clioClient.js";
+import { clioGet, clioPost, clioPatch, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 
 const TASK_FIELDS = "id,name,priority,due_at,status,assignee{id,name},matter{id,display_number},reminders{id,notification_method}";
+
+const TASK_LIST_FIELDS =
+  "id,name,description,priority,due_at,status,completed_at,created_at,updated_at,assignee{id,name},matter{id,display_number},reminders{id,notification_method}";
 
 const STATUS_MAP: Record<string, string> = { Pending: "pending", Complete: "complete", "In Progress": "in_progress", "In Review": "in_review", "Draft": "draft" };
 
@@ -11,56 +14,75 @@ export function registerTaskTools(server: McpServer): void {
   server.registerTool(
     "list_tasks",
     {
-      description: "List tasks from Clio with optional filters",
+      description: "List tasks from Clio with optional filters. All filters are native Clio filters. Returns next_page_token when more tasks remain.",
       inputSchema: {
         matter_id: z.number().int().positive().optional().describe("Filter tasks by matter ID"),
         status: z.enum(["Pending", "Complete", "In Progress", "In Review", "Draft"]).optional().describe("Filter by task status"),
+        complete: z.boolean().optional().describe("true for completed tasks only, false for open tasks only"),
         due_date_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — tasks due on or after this date"),
         due_date_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — tasks due on or before this date"),
+        created_since: z.string().optional().describe("ISO-8601 timestamp; only tasks created at or after this time"),
+        updated_since: z.string().optional().describe("ISO-8601 timestamp; only tasks updated at or after this time"),
         limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1-200)"),
+        page_token: z.string().optional().describe("Cursor from a previous list_tasks response to fetch the next page"),
       },
     },
-    async ({ matter_id, status, due_date_start, due_date_end, limit }) => {
+    async ({ matter_id, status, complete, due_date_start, due_date_end, created_since, updated_since, limit, page_token }) => {
+      const auditArgs = { matter_id, status, complete, due_date_start, due_date_end, created_since, updated_since, limit, page_token };
       try {
-        const params: Record<string, string> = { fields: TASK_FIELDS, limit: String(limit) };
+        const params: Record<string, string> = { fields: TASK_LIST_FIELDS, limit: String(limit) };
         if (matter_id) params["matter_id"] = String(matter_id);
         if (status) params["status"] = STATUS_MAP[status];
+        if (complete !== undefined) params["complete"] = String(complete);
         if (due_date_start) params["due_at_from"] = due_date_start;
         if (due_date_end) params["due_at_to"] = due_date_end;
+        if (created_since) params["created_since"] = created_since;
+        if (updated_since) params["updated_since"] = updated_since;
+        if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/tasks.json", params);
-        const tasks = data.data as any[];
+        const tasks = (data.data ?? []) as any[];
+        const nextPageToken = tasks.length >= limit ? extractNextPageToken(data.meta) : null;
 
         await appendAuditLog({
           tool: "list_tasks",
-          args: { matter_id, status, due_date_start, due_date_end, limit },
+          args: auditArgs,
           outcome: "success",
-          result_count: tasks?.length ?? 0,
+          result_count: tasks.length,
           ...(matter_id && { matter_id }),
         });
 
-        if (!tasks || tasks.length === 0) {
+        if (tasks.length === 0) {
           return { content: [{ type: "text", text: "No tasks found." }] };
         }
 
-        const result = tasks.map((t) => ({
-          id: t.id,
-          name: t.name,
-          priority: t.priority,
-          due_date: t.due_at ? t.due_at.substring(0, 10) : null,
-          status: t.status,
-          assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
-          matter: t.matter ? { id: t.matter.id, display_number: t.matter.display_number } : null,
-          reminder: t.reminders?.length > 0
-            ? { notification_method: t.reminders[0].notification_method }
-            : null,
-        }));
+        const result = {
+          tasks: tasks.map((t) => ({
+            id: t.id,
+            name: t.name,
+            description: t.description ?? null,
+            priority: t.priority,
+            due_date: t.due_at ? t.due_at.substring(0, 10) : null,
+            status: t.status,
+            completed_at: t.completed_at ?? null,
+            assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
+            matter: t.matter ? { id: t.matter.id, display_number: t.matter.display_number } : null,
+            reminder: t.reminders?.length > 0
+              ? { notification_method: t.reminders[0].notification_method }
+              : null,
+            created_at: t.created_at ?? null,
+            updated_at: t.updated_at ?? null,
+          })),
+          total_count: data.meta?.records ?? tasks.length,
+          has_more: nextPageToken !== null,
+          next_page_token: nextPageToken,
+        };
 
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err: any) {
         await appendAuditLog({
           tool: "list_tasks",
-          args: { matter_id, status, due_date_start, due_date_end, limit },
+          args: auditArgs,
           outcome: "error",
           error_message: err.message,
           ...(matter_id && { matter_id }),
