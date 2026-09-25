@@ -58,13 +58,14 @@ import { registerCalendarTools } from "../calendar.js";
 import { registerActivityTools } from "../activities.js";
 import { registerBillingTools } from "../billing.js";
 import { registerNoteTools } from "../notes.js";
+import { registerCommunicationTools } from "../communications.js";
 import { registerUserTools } from "../users.js";
 import { registerAuditExportTool } from "../auditExport.js";
 
 const REGISTRARS = [
   registerMatterTools, registerContactTools, registerDocumentTools, registerTaskTools,
   registerCalendarTools, registerActivityTools, registerBillingTools, registerNoteTools,
-  registerUserTools, registerAuditExportTool,
+  registerCommunicationTools, registerUserTools, registerAuditExportTool,
 ];
 
 /** Every tool in this fork that writes to Clio. A new write tool must be added here. */
