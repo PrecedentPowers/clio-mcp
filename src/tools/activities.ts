@@ -1,9 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
-import { clioGet, clioPost } from "../utils/clioClient.js";
+import { clioGet, clioPost, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 
 const ACTIVITY_FIELDS = "id,date,quantity_in_hours,price,total,note,matter{id,display_number},user{id,name}";
+
+const ACTIVITY_LIST_FIELDS =
+  "id,type,date,quantity_in_hours,quantity,price,total,note,billed,non_billable,no_charge,bill{id,number},activity_description{id,name},expense_category{id,name},user{id,name},matter{id,display_number},created_at,updated_at";
 
 export function registerActivityTools(server: McpServer): void {
   server.registerTool(
@@ -62,6 +65,93 @@ export function registerActivityTools(server: McpServer): void {
           outcome: "error",
           error_message: err.message,
           ...(matter_id && { matter_id }),
+        });
+        return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "list_activities",
+    {
+      description:
+        "List time and expense entries on a matter, with paging. All filters are native Clio filters. Supersedes list_time_entries, which is kept for compatibility.",
+      inputSchema: {
+        matter_id: z.number().int().positive().describe("Matter whose activities to list"),
+        type: z.enum(["TimeEntry", "ExpenseEntry"]).optional().describe("Only time entries or only expense entries; omit for both"),
+        start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — entries dated on or after this date"),
+        end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — entries dated on or before this date"),
+        status: z.enum(["draft", "billed", "unbilled", "non_billable", "billable"]).optional().describe("Filter by billing status"),
+        updated_since: z.string().optional().describe("ISO-8601 timestamp; only entries updated at or after this time"),
+        limit: z.number().int().min(1).max(200).default(50).describe("Max results to return (1-200)"),
+        page_token: z.string().optional().describe("Cursor from a previous list_activities response to fetch the next page"),
+      },
+    },
+    async ({ matter_id, type, start_date, end_date, status, updated_since, limit, page_token }) => {
+      const auditArgs = { matter_id, type, start_date, end_date, status, updated_since, limit, page_token };
+      try {
+        const params: Record<string, string> = {
+          fields: ACTIVITY_LIST_FIELDS,
+          limit: String(limit),
+          matter_id: String(matter_id),
+        };
+        if (type) params["type"] = type;
+        if (start_date) params["start_date"] = start_date;
+        if (end_date) params["end_date"] = end_date;
+        if (status) params["status"] = status;
+        if (updated_since) params["updated_since"] = updated_since;
+        if (page_token) params["page_token"] = page_token;
+
+        const data = await clioGet("/activities.json", params);
+        const entries = (data.data ?? []) as any[];
+        const nextPageToken = entries.length >= limit ? extractNextPageToken(data.meta) : null;
+
+        await appendAuditLog({
+          tool: "list_activities",
+          args: auditArgs,
+          outcome: "success",
+          result_count: entries.length,
+          matter_id,
+        });
+
+        if (entries.length === 0) {
+          return { content: [{ type: "text", text: "No activities found." }] };
+        }
+
+        const result = {
+          activities: entries.map((e) => ({
+            id: e.id,
+            type: e.type,
+            date: e.date,
+            quantity_in_hours: e.quantity_in_hours ?? null,
+            quantity: e.quantity ?? null,
+            price: e.price ?? null,
+            total: e.total ?? null,
+            note: e.note ?? null,
+            billed: e.billed ?? false,
+            non_billable: e.non_billable ?? false,
+            no_charge: e.no_charge ?? false,
+            bill: e.bill ? { id: e.bill.id, number: e.bill.number } : null,
+            activity_description: e.activity_description ? { id: e.activity_description.id, name: e.activity_description.name } : null,
+            expense_category: e.expense_category ? { id: e.expense_category.id, name: e.expense_category.name } : null,
+            user: e.user ? { id: e.user.id, name: e.user.name } : null,
+            matter: e.matter ? { id: e.matter.id, display_number: e.matter.display_number } : null,
+            created_at: e.created_at,
+            updated_at: e.updated_at,
+          })),
+          total_count: data.meta?.records ?? entries.length,
+          has_more: nextPageToken !== null,
+          next_page_token: nextPageToken,
+        };
+
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (err: any) {
+        await appendAuditLog({
+          tool: "list_activities",
+          args: auditArgs,
+          outcome: "error",
+          error_message: err.message,
+          matter_id,
         });
         return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
       }

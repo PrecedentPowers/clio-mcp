@@ -6,7 +6,7 @@ import crypto from "crypto";
 import { clioGet, clioPost, clioPut, clioPatch, getClioBaseUrl, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 
-const DOCUMENT_LIST_FIELDS = "id,name,content_type,size,created_at,matter{id,display_number}";
+const DOCUMENT_LIST_FIELDS = "id,name,content_type,size,created_at,updated_at,received_at,matter{id,display_number}";
 
 const DOCUMENT_DETAIL_FIELDS =
   "id,name,content_type,size,created_at,matter{id,display_number},latest_document_version{uuid,created_at,size}";
@@ -68,16 +68,18 @@ export function registerDocumentTools(server: McpServer): void {
   server.registerTool(
     "list_documents",
     {
-      description: "List documents in Clio, filtered by matter or folder",
+      description: "List documents in Clio, filtered by matter or folder. created_since/updated_since are native Clio filters.",
       inputSchema: {
         matter_id: z.number().int().positive().optional().describe("Filter documents by matter ID"),
         parent_id: z.number().int().positive().optional().describe("Filter documents by parent ID (folder)"),
         query: z.string().optional().describe("Full-text search string for document names"),
         limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1-200)"),
+        created_since: z.string().optional().describe("ISO-8601 timestamp; only documents created at or after this time"),
+        updated_since: z.string().optional().describe("ISO-8601 timestamp; only documents updated at or after this time"),
         page_token: z.string().optional().describe("Cursor from a previous list_documents response to fetch the next page"),
       },
     },
-    async ({ matter_id, parent_id, query, limit, page_token }) => {
+    async ({ matter_id, parent_id, query, created_since, updated_since, limit, page_token }) => {
       if (!matter_id && !parent_id && !query) {
         return {
           content: [{ type: "text", text: "Error: provide at least one of matter_id, parent_id, or query" }],
@@ -90,6 +92,8 @@ export function registerDocumentTools(server: McpServer): void {
         if (matter_id) params["matter_id"] = String(matter_id);
         if (parent_id) params["parent_id"] = String(parent_id);
         if (query) params["query"] = query;
+        if (created_since) params["created_since"] = created_since;
+        if (updated_since) params["updated_since"] = updated_since;
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/documents.json", params);
@@ -98,7 +102,7 @@ export function registerDocumentTools(server: McpServer): void {
 
         await appendAuditLog({
           tool: "list_documents",
-          args: { matter_id, parent_id, query, limit, page_token },
+          args: { matter_id, parent_id, query, created_since, updated_since, limit, page_token },
           outcome: "success",
           result_count: docs?.length ?? 0,
           ...(matter_id && { matter_id }),
@@ -115,6 +119,8 @@ export function registerDocumentTools(server: McpServer): void {
             content_type: d.content_type,
             size: d.size,
             created_at: d.created_at,
+            updated_at: d.updated_at ?? null,
+            received_at: d.received_at ?? null,
             matter: d.matter ? { id: d.matter.id, display_number: d.matter.display_number } : null,
           })),
           total_count: data.meta?.records ?? docs.length,
@@ -126,7 +132,7 @@ export function registerDocumentTools(server: McpServer): void {
       } catch (err: any) {
         await appendAuditLog({
           tool: "list_documents",
-          args: { matter_id, parent_id, query, limit, page_token },
+          args: { matter_id, parent_id, query, created_since, updated_since, limit, page_token },
           outcome: "error",
           error_message: err.message,
           ...(matter_id && { matter_id }),
