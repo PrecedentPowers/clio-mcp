@@ -80,9 +80,12 @@ export async function clioGet(path: string, params?: Record<string, string>): Pr
   return res.json();
 }
 
-export async function clioPost(path: string, body: unknown): Promise<any> {
+export async function clioPost(path: string, body: unknown, params?: Record<string, string>): Promise<any> {
   const token = await resolveAccessToken();
   const url = new URL(`${getBase()}${path}`);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  }
   const res = await clioFetch(url.toString(), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -91,9 +94,12 @@ export async function clioPost(path: string, body: unknown): Promise<any> {
   return res.json();
 }
 
-export async function clioPatch(path: string, body: unknown): Promise<any> {
+export async function clioPatch(path: string, body: unknown, params?: Record<string, string>): Promise<any> {
   const token = await resolveAccessToken();
   const url = new URL(`${getBase()}${path}`);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  }
   const res = await clioFetch(url.toString(), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -110,9 +116,12 @@ export function extractNextPageToken(meta: any): string | null {
   catch { return null; }
 }
 
-export async function clioPut(path: string, body: unknown): Promise<any> {
+export async function clioPut(path: string, body: unknown, params?: Record<string, string>): Promise<any> {
   const token = await resolveAccessToken();
   const url = new URL(`${getBase()}${path}`);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  }
   const res = await clioFetch(url.toString(), {
     method: "PUT",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

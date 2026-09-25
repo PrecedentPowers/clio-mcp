@@ -4,6 +4,8 @@ import { clioGet, clioPost } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 
 const ACTIVITY_FIELDS = "id,date,quantity_in_hours,price,total,note,matter{id,display_number},user{id,name}";
+// Write responses also report type and non_billable back to the caller.
+const ACTIVITY_WRITE_FIELDS = `${ACTIVITY_FIELDS},type,non_billable`;
 
 export function registerActivityTools(server: McpServer): void {
   server.registerTool(
@@ -99,7 +101,7 @@ export function registerActivityTools(server: McpServer): void {
         if (activity_description_id !== undefined) activityData["activity_description"] = { id: activity_description_id };
         if (user_id !== undefined)               activityData["user"] = { id: user_id };
 
-        const data = await clioPost("/activities.json", { data: activityData });
+        const data = await clioPost("/activities.json", { data: activityData }, { fields: ACTIVITY_WRITE_FIELDS });
         const entry = data.data;
 
         await appendAuditLog({
@@ -185,7 +187,7 @@ export function registerActivityTools(server: McpServer): void {
         if (reference !== undefined)               activityData["reference"] = reference;
         if (tax_setting !== undefined)             activityData["tax_setting"] = tax_setting;
 
-        const data = await clioPost("/activities.json", { data: activityData });
+        const data = await clioPost("/activities.json", { data: activityData }, { fields: ACTIVITY_WRITE_FIELDS });
         const entry = data.data;
 
         await appendAuditLog({
