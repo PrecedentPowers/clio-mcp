@@ -1,6 +1,8 @@
 # Plan: port upstream's write-fields fix, then merge upstream 2.3.0
 
-**Status:** DRAFT v0.1 (2026-09-25). Nothing here is built. Each phase needs its own go-ahead.
+**Status:** DRAFT v0.2 (2026-09-25).
+- **Phase A is built** in PrecedentPowers/clio-mcp#5 (branch `claude/cool-lovelace-01393d`, head `9547bb2`), written in a separate session. It's open and **not yet live-tested** (testing spec §G).
+- **Phase B has not been started.** No branch in the repo carries any of upstream's 35 commits.
 **Fork:** PrecedentPowers/clio-mcp `main` at `47a4569` (2.1.0, 29 tools).
 **Upstream:** oktopeak/clio-mcp `main` at `44916ad` (2.3.0, 36 tools). Merge base `d85f3be` (2.0.0); 35 upstream commits since.
 **Basis:** a trial merge and trial cherry-pick on the fork, both aborted. Claims marked ✔ were re-checked by hand against the source; the rest come from the trial-merge analysis, which cites the commit or file for each.
@@ -13,7 +15,21 @@ The write-fields fix (upstream `44916ad`, PR #29) is small, separable and urgent
 
 ---
 
-## 2. Phase A — write-field selection (small PR)
+## 2. Phase A — write-field selection (small PR) → PrecedentPowers/clio-mcp#5
+
+### Status (checked 2026-09-25 against `9547bb2`)
+PR #5 includes `main` (v2.1). On that branch, 15 test files and 162 tests pass, and `tsc -p tsconfig.build.json` is clean. Against the steps below:
+
+| Step | PR #5 | Note |
+|---|---|---|
+| 2. Client `params` | `clioPost`, `clioPatch` **and `clioPut`** | `clioPut` goes beyond upstream, which left it unchanged. Harmless, but Phase B must pick a side (see §3 table). |
+| 3. Eight call sites | All eight | `complete_task` uses `TASK_COMPLETE_FIELDS` (`TASK_FIELDS` + `completed_at`). Both activity writes use `ACTIVITY_WRITE_FIELDS` (+ `type`, `non_billable`). |
+| 3. `create_matter` fields | `MATTER_CREATE_FIELDS` = `MATTER_DETAIL_FIELDS` + `originating_attorney{id,name}` + `client_reference` | Not the lean field set proposed here. It works, but a create response also pulls the client's `date_of_birth` and custom fields, which the tool doesn't return. Minor; revisit in Phase B when `matters.ts` is reworked anyway. |
+| 4. Tests | `writeFieldsSelection.test.ts` (a sweep over every registered write, plus client plumbing, plus "requests the extra fields its response reports"), `tasks.test.ts` updated, and conductor-task contract tests for `create_task`, `update_task` and `complete_task` | Covers the proposed returned-vs-requested check |
+| 5. Gates | Unit tests and build green | — |
+| 6. Live write test | **Not done.** The commit message says five added field names (`completed_at`, `type`, `non_billable`, `originating_attorney`, `client_reference`) are not live-verified. | → testing spec §G, before merging PR #5 |
+
+The steps below are kept as the reference for what Phase A was meant to do.
 
 ### What's wrong today
 Clio's write endpoints return a minimal record unless `?fields=` is sent. The fork's `clioPost`/`clioPatch` can't send one. ✔ Upstream added a `params` argument to `clioPost` and `clioPatch` only; `clioPut` is unchanged (upstream `src/utils/clioClient.ts`: `clioPost` line 158, `clioPatch` line 172, `clioPut` line 194). The fork's handlers use optional chaining, so the likely symptom is `success: true` with null or missing fields, not an error. What Clio's default write response contains is **not verified**; the live test in A4 settles it.
@@ -60,6 +76,7 @@ Regions us/eu/**ca**/au with validated `CLIO_REGION`; a READ_ONLY mode; a tool r
 | `src/tools/matters.ts` | `date_of_birth` in `client{…}`; `responsible_attorney`; the `responsible_attorney_id` filter; default-attorney logic; **exported `MATTER_DETAIL_FIELDS` and `flattenCustomFields`**, ✔ both imported by `src/cli/export.ts` line 5 | Custom-field machinery, `matter_stage`, `update_matter`, field-fallback reads |
 | `calendar.ts`, `tasks.ts` | The v2.1 filters and extra fields | Decide the empty-result form and the default `limit` (§5) |
 | `notes.ts` | — | Identical except the default `limit` (50 vs 25) |
+| `src/utils/clioClient.ts` | `params` on `clioPut` (from PR #5) | `clioGetAllPages`, retry and backoff changes, `requireSessionContext`. PR #5's `params` on `clioPost`/`clioPatch` matches upstream line for line, so expect the conflict to be limited to `clioPut` and the surrounding context. |
 | `README.md`, `.env.example`, `package.json`, `server.json` | Fork env vars and v2.1 tool rows | Upstream structure. The tool count must equal `TOOL_META`, because `docsCounts.test.ts` enforces it. |
 
 ### Auto-merges that go wrong without a conflict
@@ -75,7 +92,7 @@ Regions us/eu/**ca**/au with validated `CLIO_REGION`; a READ_ONLY mode; a tool r
 ✔ Already in the fork, independent of the merge: `getValidAccessToken` starts `runOAuthFlow()` when no tokens exist (fork `src/auth/oauth.ts`, `getValidAccessToken`). Fix 1 should close this for the CLI path as well.
 
 ### Steps
-1. Branch from `main` after Phase A lands, e.g. `merge/upstream-2.3.0`.
+1. Branch from `main` after **PR #5** (Phase A) merges, e.g. `merge/upstream-2.3.0`.
 2. `git merge upstream/main` as a merge commit, which keeps upstream history for future merges. Resolve per the table.
 3. Apply fixes 1–8.
 4. **Gates:** `tsc -p tsconfig.build.json`; full vitest suite (upstream's registry, docsCounts, auditRedaction, writeFieldsSelection, plus the fork's cli and readTools); `npm run verify:no-secrets`; upstream's `scripts/smoke-stdio.mjs`; this repo's `scripts/smoke-v2.1-reads.mjs`.
@@ -92,7 +109,7 @@ Regions us/eu/**ca**/au with validated `CLIO_REGION`; a READ_ONLY mode; a tool r
 ## 4. Order
 
 1. **Now:** run `docs/TESTING-v2.1-reads.md` on the merged v2.1 (it went in untested).
-2. **Phase A** PR, with its live write test.
+2. **Phase A = PR #5:** run testing spec §G (live writes on a test matter), fix any of the five unverified field names that Clio rejects, then merge.
 3. **Phase B** PR, with its gates and the full re-test.
 4. **After B:** statement-of-account skill v2.1 changes (spec §5).
 

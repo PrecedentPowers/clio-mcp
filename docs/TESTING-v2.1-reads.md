@@ -1,6 +1,7 @@
 # Testing spec — clio-mcp 2.1.0 read tools
 
 **Covers:** `main` at `47a4569` (PrecedentPowers/clio-mcp#4, merged 2026-09-25), implementing `SPEC-clio-mcp-v2.1-reads.md` (Phase 6).
+**Also covers:** §G, the live **write** test for PrecedentPowers/clio-mcp#5 (write-fields fix, not yet merged). It runs on that PR's branch, not on `main`.
 **Status:** merged **before** live testing. Run this before the Practice Conductor's next scheduled run, because of the calendar/tasks response-shape change (C2, C3).
 **Run by:** Austin, on the Mac that hosts the Claude Desktop connector. Every step is read-only against Clio.
 **Pass bar:** every gate below passes, or a failure is written up with a decision and a fix PR.
@@ -148,3 +149,69 @@ Then quit and reopen Claude Desktop. Nothing in this PR writes to Clio, so there
 - [ ] C1–C5 pass; conductor prompts updated if C2/C3 found bare-array reads
 - [ ] D1–D2 pass
 - [ ] Smoke output and any follow-up fixes recorded (a new PR if anything needs changing)
+
+---
+
+## G. Write tools — PrecedentPowers/clio-mcp#5 (before merging it)
+
+**What PR #5 changes:** every create/update tool now asks Clio for `fields`. Before the change, Clio returned only the id, so these tools reported `success: true` with null fields. `conductor-task` depends on the task tools returning a real id and status.
+**This section writes to Clio.** Use a **dedicated test matter** (not a client file), and delete what it creates (G5). §§A–F are unaffected: they run on `main`, which doesn't contain PR #5.
+
+### G1. Switch to the PR branch
+
+```bash
+git checkout main && git pull        # finish §§A–F on main first
+git fetch origin
+git checkout claude/cool-lovelace-01393d
+npm ci && npm run build
+npm test                             # 15 files, 162 tests, all passing
+```
+
+Quit and reopen Claude Desktop so it loads this build. Confirm `node build/index.js auth-status` reports `"ok": true`.
+
+### G2. Set up
+
+- **Test matter:** create or pick one in Clio (e.g. "ZZ TEST — delete me"), and note its numeric id (**T**).
+- **Your user id (U):** in Claude, *"list Clio users named Corbett"* (`list_users`).
+
+### G3. Calls and what must come back
+
+Run each call in Claude, naming the tool so the model doesn't improvise, e.g. *"Use create_task on matter T: name 'ZZ smoke task', description 'smoke test', due 2026-10-15."* Paste each JSON result into your notes.
+
+The **before-fix symptom** is a field showing `null` (or `"due_at": null` when a date was given) even though Clio stored it. Any such null is a **FAIL**.
+
+| # | Tool and arguments | Must be populated in the response |
+|---|---|---|
+| W1 | `create_task` — `matter_id: T`, name, description, `due_date: 2026-10-15`, `assignee_id: U` | `task.id`, `name`, `priority: "Normal"`, `due_at: "2026-10-15"` |
+| W2 | `update_task` — `task_id` from W1, `status: "In Progress"`, `priority: "High"` | `status: "in_progress"`, `priority: "High"`, `due_date`, `matter_id: T` |
+| W3 | `complete_task` — `task_id` from W1 | `status: "complete"`, **`completed_at` is a timestamp** (one of the five unverified field names) |
+| W4 | `create_note` — `matter_id: T`, subject "ZZ smoke note", body | `note.id`, `subject: "ZZ smoke note"` |
+| W5 | `create_calendar_entry` — `summary: "ZZ smoke event"`, `start_at: 2026-10-16T10:00`, `end_at: 2026-10-16T10:30`, `calendar_owner_id` from `list_calendars`, `matter_id: T` | `id`, `summary`, `start_at`, `end_at`, `matter.id: T` |
+| W6 | `log_time_entry` — `matter_id: T`, `date: 2026-09-25`, `quantity_in_hours: 0.1`, `note: "ZZ smoke"`, `non_billable: true` | `id`, `quantity_in_hours: 0.1`, `total`, `matter`, `user`, **`non_billable: true`** (unverified field) |
+| W7 | `create_activity` — `type: "ExpenseEntry"`, `date: 2026-09-25`, `matter_id: T`, `price: 1`, `note: "ZZ smoke expense"` | **`type: "ExpenseEntry"`** (unverified field), `price: 1`, `total`, `matter` |
+| W8 | *(optional: creates a matter)* `create_matter` — `client_id` of a test contact, `description: "ZZ smoke matter"`, `originating_attorney_id: U`, `client_reference: "ZZ-SMOKE"` | `display_number`, `client`, **`originating_attorney`** and **`client_reference: "ZZ-SMOKE"`** (unverified fields) |
+
+**If Clio rejects a field name:** the tool returns `isError` with a Clio 400 that names the field. Record it; the fix is to drop or rename that one name in PR #5 (`TASK_COMPLETE_FIELDS` in `tasks.ts`, `ACTIVITY_WRITE_FIELDS` in `activities.ts`, `MATTER_CREATE_FIELDS` in `matters.ts`). A 400 means the write did **not** happen, so there's nothing to clean up for that call.
+
+### G4. conductor-task end to end
+
+| # | Step | Pass |
+|---|---|---|
+| W9 | In a matter session: *"Delegate to Tye in Clio: ZZ smoke — confirm conductor stamp, on matter T, due 2026-10-17."* | The vault task line gets a real `[clio::<id>]` (not `undefined` or `null`), and that id opens the task in Clio |
+| W10 | *"Mark the ZZ smoke task done in Clio."* | The skill reports it complete; Clio shows it completed |
+
+### G5. Clean up (in the Clio web UI)
+
+Delete the W1/W9 tasks, the W4 note, the W5 calendar entry, the W6 time entry and the W7 expense. Delete (or close) the W8 matter if you made one, then the test matter if it was created just for this. Remove the W9 line from the vault.
+
+### G6. Audit log
+
+`tail -n 20 ~/.clio-mcp/audit.log`: one `outcome: "success"` line per W-call, with `matter_id: T` where the tool records it. `create_note` logs `subject` in its args (by design today); no note body or task description is logged.
+
+### G7. Sign-off for PR #5
+
+- [ ] G1 unit tests and build pass
+- [ ] W1–W7 (and W8 if run) return every listed field populated, and none of the five unverified names is rejected; or a fix is pushed to PR #5 and W-calls re-run
+- [ ] W9–W10 pass
+- [ ] G5 cleanup done
+- [ ] Merge PR #5, then `git checkout main && git pull && npm run build` and restart Claude Desktop
