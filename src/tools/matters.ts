@@ -29,6 +29,9 @@ export const MATTER_DETAIL_FIELDS =
   "responsible_attorney{id,name}," +
   "custom_field_values{id,value,field_type,field_name}";
 
+// create_matter also reports originating_attorney and client_reference back.
+const MATTER_CREATE_FIELDS = `${MATTER_DETAIL_FIELDS},originating_attorney{id,name},client_reference`;
+
 // Flatten Clio custom_field_values into a { "Field Name": value } map.
 // Uses field_name (live-verified primary); custom_field?.name kept as a defensive
 // fallback for any future API variant. `??` preserves false / 0 / null correctly.
@@ -195,7 +198,7 @@ export function registerMatterTools(server: McpServer): void {
         if (originating_attorney_id) matterData["originating_attorney"] = { id: originating_attorney_id };
         if (client_reference) matterData["client_reference"] = client_reference;
 
-        const data = await clioPost("/matters.json", { data: matterData });
+        const data = await clioPost("/matters.json", { data: matterData }, { fields: MATTER_CREATE_FIELDS });
         const m = data.data;
 
         await appendAuditLog({

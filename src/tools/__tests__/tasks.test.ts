@@ -28,11 +28,13 @@ const TASK_FIXTURE = {
 };
 
 const handlers = new Map<string, (args: Record<string, unknown>) => Promise<unknown>>();
+const schemas = new Map<string, Record<string, any>>();
 
 beforeAll(() => {
   const fakeServer = {
-    registerTool: (name: string, _schema: unknown, handler: (args: Record<string, unknown>) => Promise<unknown>) => {
+    registerTool: (name: string, schema: { inputSchema?: Record<string, any> }, handler: (args: Record<string, unknown>) => Promise<unknown>) => {
       handlers.set(name, handler);
+      schemas.set(name, schema?.inputSchema ?? {});
     },
   };
   registerTaskTools(fakeServer as any);
@@ -60,16 +62,7 @@ describe("update_task", () => {
     expect(mockClioPatch).toHaveBeenCalledWith(
       "/tasks/1.json",
       expect.objectContaining({ data: expect.objectContaining({ status: "complete" }) }),
-    );
-  });
-
-  it("translates status 'In Progress' via STATUS_MAP to 'in_progress'", async () => {
-    mockClioPatch.mockResolvedValue({ data: TASK_FIXTURE });
-    const handler = handlers.get("update_task")!;
-    await handler({ task_id: 1, status: "In Progress" });
-    expect(mockClioPatch).toHaveBeenCalledWith(
-      "/tasks/1.json",
-      expect.objectContaining({ data: expect.objectContaining({ status: "in_progress" }) }),
+      { fields: expect.stringContaining("status") },
     );
   });
 
@@ -80,6 +73,7 @@ describe("update_task", () => {
     expect(mockClioPatch).toHaveBeenCalledWith(
       "/tasks/1.json",
       expect.objectContaining({ data: expect.objectContaining({ due_at: "2026-01-15T00:00:00Z" }) }),
+      { fields: expect.stringContaining("status") },
     );
   });
 
@@ -90,6 +84,7 @@ describe("update_task", () => {
     expect(mockClioPatch).toHaveBeenCalledWith(
       "/tasks/1.json",
       expect.objectContaining({ data: expect.objectContaining({ assignee: { id: 42, type: "User" } }) }),
+      { fields: expect.stringContaining("status") },
     );
   });
 
@@ -128,7 +123,11 @@ describe("complete_task", () => {
     mockClioPatch.mockResolvedValue({ data: TASK_FIXTURE });
     const handler = handlers.get("complete_task")!;
     await handler({ task_id: 1 });
-    expect(mockClioPatch).toHaveBeenCalledWith("/tasks/1.json", { data: { status: "complete" } });
+    expect(mockClioPatch).toHaveBeenCalledWith(
+      "/tasks/1.json",
+      { data: { status: "complete" } },
+      { fields: expect.stringContaining("completed_at") },
+    );
   });
 
   it("returns task shape with id, name, status, and completed_at", async () => {
@@ -159,5 +158,18 @@ describe("complete_task", () => {
     expect(mockAppendAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({ tool: "complete_task", outcome: "error", error_message: "timeout" }),
     );
+  });
+});
+
+// ─── status enum ──────────────────────────────────────────────────────────────
+
+describe("status schema", () => {
+  it.each(["list_tasks", "update_task"])("%s's status only accepts Pending or Complete", (toolName) => {
+    const statusSchema = schemas.get(toolName)!["status"];
+    expect(statusSchema.safeParse("Pending").success).toBe(true);
+    expect(statusSchema.safeParse("Complete").success).toBe(true);
+    expect(statusSchema.safeParse("In Progress").success).toBe(false);
+    expect(statusSchema.safeParse("In Review").success).toBe(false);
+    expect(statusSchema.safeParse("Draft").success).toBe(false);
   });
 });
