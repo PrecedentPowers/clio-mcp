@@ -3,6 +3,10 @@ import path from "path";
 import { clioGet, extractNextPageToken, ClioApiError } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 import { MATTER_DETAIL_FIELDS, flattenCustomFields } from "../tools/matters.js";
+import { sessionStorage, SessionContext } from "../utils/sessionContext.js";
+import { getAccessTokenNonInteractive } from "../auth/nonInteractiveToken.js";
+import { loadTokens } from "../auth/tokenStorage.js";
+import type { ClioTokens } from "../auth/oauth.js";
 
 const USAGE =
   "Usage: clio-mcp clio-export --out-dir <path> [--status open|pending|closed] [--limit 1-200]";
@@ -123,62 +127,84 @@ export async function runClioExport(argv: string[]): Promise<number> {
     return 1;
   }
 
-  let pageNum = 0;
-  let totalMatters = 0;
-  let pageToken: string | undefined;
+  // clio-export runs unattended (the Practice Conductor's weekly cron), so token
+  // resolution must never open a browser. Installing this SessionContext makes
+  // clioGet's resolveAccessToken() (clioClient.ts) call getAccessTokenNonInteractive()
+  // instead of falling through to getValidAccessToken() — which would call
+  // runOAuthFlow() and open a browser when no tokens are stored. storeTokens/
+  // clearTokens/setPendingNonce are no-ops. getTokens returns the tokens stored at
+  // start-up only so appendAuditLog can still record clio_user_id (it reads identity
+  // from the context whenever one is installed); it is never used to authenticate.
+  let storedTokens: ClioTokens | null = null;
+  try { storedTokens = await loadTokens(); } catch { /* identity is best-effort */ }
+  const ctx: SessionContext = {
+    sessionId: "clio-export-cli",
+    getAccessToken: getAccessTokenNonInteractive,
+    storeTokens: () => {},
+    getTokens: () => storedTokens,
+    clearTokens: () => {},
+    setPendingNonce: () => {},
+  };
 
-  for (;;) {
-    pageNum++;
-    const params: Record<string, string> = {
-      fields: MATTER_DETAIL_FIELDS,
-      status,
-      limit: String(limit),
-    };
-    if (pageToken) params["page_token"] = pageToken;
+  return sessionStorage.run(ctx, async () => {
+    let pageNum = 0;
+    let totalMatters = 0;
+    let pageToken: string | undefined;
 
-    let data: any;
-    try {
-      data = await clioGet("/matters.json", params);
-    } catch (err: any) {
-      await appendAuditLog({ tool: "clio_export_cli", args: auditArgs, outcome: "error", error_message: err.message });
-      // ClioApiError means the Clio API responded (token resolution already succeeded) —
-      // any other error means clioGet failed before/while resolving the access token
-      // (missing tokens, refresh failure, etc). getValidAccessToken() is never called
-      // directly here and no browser/OAuth flow is ever triggered by this CLI path.
-      if (!(err instanceof ClioApiError)) {
-        console.error("EXPORT: FAIL — no valid Clio token; re-authenticate via the Clio MCP in Claude, then re-run");
-        return 2;
+    for (;;) {
+      pageNum++;
+      const params: Record<string, string> = {
+        fields: MATTER_DETAIL_FIELDS,
+        status,
+        limit: String(limit),
+      };
+      if (pageToken) params["page_token"] = pageToken;
+
+      let data: any;
+      try {
+        data = await clioGet("/matters.json", params);
+      } catch (err: any) {
+        await appendAuditLog({ tool: "clio_export_cli", args: auditArgs, outcome: "error", error_message: err.message });
+        // ClioApiError means the Clio API responded (token resolution already succeeded) —
+        // any other error means token resolution itself failed. It goes through the
+        // SessionContext installed above, i.e. getAccessTokenNonInteractive() (missing
+        // tokens, refresh failure, etc): getValidAccessToken() and runOAuthFlow() are
+        // never called by this CLI path, so no browser/OAuth flow is ever triggered.
+        if (!(err instanceof ClioApiError)) {
+          console.error("EXPORT: FAIL — no valid Clio token; re-authenticate via the Clio MCP in Claude, then re-run");
+          return 2;
+        }
+        console.error(`EXPORT: FAIL — ${err.message}`);
+        return 1;
       }
-      console.error(`EXPORT: FAIL — ${err.message}`);
-      return 1;
+
+      const matters = (data.data as any[]) ?? [];
+      const mapped = matters.map(mapMatter);
+      totalMatters += mapped.length;
+      const nextToken = extractNextPageToken(data.meta);
+
+      try {
+        await writePageAtomic(outDir, pageNum, { matters: mapped, next_page_token: nextToken });
+      } catch (err: any) {
+        await appendAuditLog({ tool: "clio_export_cli", args: auditArgs, outcome: "error", error_message: err.message });
+        console.error(`EXPORT: FAIL — ${err.message}`);
+        return 1;
+      }
+
+      console.error(`EXPORT: page ${pageNum} — ${mapped.length} matters`);
+
+      if (!nextToken) break;
+      pageToken = nextToken;
     }
 
-    const matters = (data.data as any[]) ?? [];
-    const mapped = matters.map(mapMatter);
-    totalMatters += mapped.length;
-    const nextToken = extractNextPageToken(data.meta);
+    await appendAuditLog({
+      tool: "clio_export_cli",
+      args: auditArgs,
+      outcome: "success",
+      result_count: totalMatters,
+    });
 
-    try {
-      await writePageAtomic(outDir, pageNum, { matters: mapped, next_page_token: nextToken });
-    } catch (err: any) {
-      await appendAuditLog({ tool: "clio_export_cli", args: auditArgs, outcome: "error", error_message: err.message });
-      console.error(`EXPORT: FAIL — ${err.message}`);
-      return 1;
-    }
-
-    console.error(`EXPORT: page ${pageNum} — ${mapped.length} matters`);
-
-    if (!nextToken) break;
-    pageToken = nextToken;
-  }
-
-  await appendAuditLog({
-    tool: "clio_export_cli",
-    args: auditArgs,
-    outcome: "success",
-    result_count: totalMatters,
+    console.log(`EXPORT: OK — ${totalMatters} matters / ${pageNum} pages`);
+    return 0;
   });
-
-  console.log(`EXPORT: OK — ${totalMatters} matters / ${pageNum} pages`);
-  return 0;
 }
