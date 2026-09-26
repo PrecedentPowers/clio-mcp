@@ -1,6 +1,6 @@
 # Plan: what's left from upstream, and what's left to do
 
-**Status:** DRAFT v0.3 (2026-09-26). Nothing in §3 is built. Each item needs its own go-ahead.
+**Status:** v0.4 (2026-09-26). Decisions in §5 made by Austin. Nothing in §3 is built. Each PR still needs its own go-ahead to build.
 **Fork:** PrecedentPowers/clio-mcp `main` at `db51fdf` (2.1.0, 29 tools): PRs #4 (v2.1 reads), #5 (write-field selection) and #6 (task status restricted to Pending/Complete; smoke script; Desktop-env helper; testing spec with the 2026-09-25 results).
 **Upstream:** oktopeak/clio-mcp `main` at `44916ad` (2.3.0). None of its 35 commits since `d85f3be` is in the fork. PR #5 ported the write-field fix by hand.
 
@@ -8,7 +8,7 @@
 
 ## 1. Decision: drop the full upstream merge
 
-v0.2's Phase B (merge upstream 2.3.0) is **withdrawn**. What it was for is either done or doesn't apply here:
+v0.2's Phase B (merge upstream 2.3.0) is **withdrawn** (decided 2026-09-26, §5 #1). What it was for is either done or doesn't apply here:
 
 | Upstream 2.3.0 | Status for this fork |
 |---|---|
@@ -43,9 +43,9 @@ These come from the testing spec, §H "Still open". They take priority over §3.
 
 ## 3. Targeted changes (replace Phase B)
 
-Each is small, independent, and needs no upstream merge. Listed in recommended order.
+Each is small and needs no upstream merge. **T1 and T2 ship together as one "privacy hardening" PR** (§5 #3). **T3 is in scope**: matters do use dropdown custom fields (§5 #4). It goes in its own PR after the privacy one, because it touches `clio-export` output.
 
-### T1. Keep Clio content out of the audit log — **recommended**
+### T1. Keep Clio content out of the audit log (privacy-hardening PR)
 **Problem:** the README says the audit log holds metadata, "not Clio content". But on `main`, write tools log free text in `args`:
 - `create_task`: `name` (`tasks.ts` 128, 151)
 - `update_task`: `name`, `description` (193, 217)
@@ -58,17 +58,17 @@ On a criminal defence file those fields can name a complainant or describe instr
 
 **Fix:** drop the free-text keys from those `args` objects, and log a boolean such as `has_note: true` where knowing a value was supplied helps. Upstream took the same approach with a per-tool allowlist (`auditLog.ts`: `create_note: ["matter_id"]`; `create_task` without `name`). Porting its allowlist machinery isn't needed.
 **Test:** one test that runs every write tool with sentinel text in each free-text field and asserts the sentinel never reaches `appendAuditLog`.
-**Note:** entries already in `~/.clio-mcp/audit.log` stay as written. Whether to scrub them is your call. The log is append-only by design (README).
+**Existing entries — deferred (§5 #2):** this PR fixes logging going forward only. Lines already in `~/.clio-mcp/audit.log` stay as written for now; scrubbing them is a later, separate task (§3 T6). The log is append-only by design (README), so a scrub has to be an explicit one-off script, not a change to the connector.
 
-### T2. Lock down the token file — **recommended**
+### T2. Lock down the token file (privacy-hardening PR)
 **Problem:** the fork writes `~/.clio-mcp/tokens.enc` with default permissions and creates the folder without a mode (`tokenStorage.ts` 63, 77). Only the key-file fallback gets 0600/0700 (lines 50, 57).
 **Fix:** `mkdir` with `mode: 0o700`, `writeFile` with `mode: 0o600`, and `chmod` both on each save so existing installs are tightened. This matches upstream's permissions. **Keep the 16-byte IV**, so no re-auth is needed.
 **Test:** save tokens into a temp HOME and assert the file mode is 0600 and the folder is 0700.
 
-### T3. Picklist custom fields read as option ids — **check first**
+### T3. Picklist custom fields read as option ids (own PR, after T1+T2)
 **Problem (not verified on your data):** `flattenCustomFields` takes `cfv.value` first (`matters.ts` ~44), and `MATTER_DETAIL_FIELDS` doesn't request `picklist_option`. Upstream (8c617f6) says a picklist's `value` is the option **id**. So any dropdown-type custom field would reach `get_matter` and `clio-export` as a number, not its label.
-**Check:** run `get_matter` on a matter whose custom fields include a dropdown, and compare `custom_fields` with the Clio UI. If there are no picklist fields, close this item.
-**Fix, if needed:** port upstream's approach narrowly. Take the label from the response when present; otherwise do one read of `custom_fields.json` per call to map option ids to labels. Never present the id as the value. Keep the flat-map shape that `clio-export` consumers expect.
+**Confirm the symptom first:** run `get_matter` on a matter that has a dropdown custom field, and compare `custom_fields` with the Clio UI. Save that output as the "before" fixture for the PR's test.
+**Fix:** port upstream's approach narrowly. Take the label from the response when present; otherwise do one read of `custom_fields.json` per call to map option ids to labels. Never present the id as the value. Keep the flat-map shape that `clio-export` consumers expect.
 
 ### T4. Longer back-off on rate limits — **optional**
 The fork retries 429s 3 times (1, 2 and 4 s; `clioClient.ts` 26). Upstream retries 6 times with jitter, capping at 30 s per wait and 90 s in total. Port it only if statement-of-account sweeps start failing with "rate limit exceeded after 3 retries".
@@ -76,6 +76,9 @@ The fork retries 429s 3 times (1, 2 and 4 s; `clioClient.ts` 26). Upstream retri
 ### T5. Tidy-ups — **optional, with the next code change**
 - `create_matter` requests `MATTER_DETAIL_FIELDS` on create, which pulls `client.date_of_birth` and custom fields it doesn't return. Use a lean write field set.
 - The legacy `list_time_entries` still returns a bare array with no paging. Leave it until nothing calls it, then remove it.
+
+### T6. Scrub existing audit-log entries — **deferred** (§5 #2)
+After T1 merges, a one-off script (not part of the connector) could rewrite `~/.clio-mcp/audit.log` to drop the free-text `args` keys T1 stops logging. Before running it, back up the original somewhere encrypted, and decide whether the original is kept or destroyed. Not scheduled.
 
 ---
 
@@ -90,11 +93,18 @@ To check for new upstream commits: `git fetch upstream && git log --oneline 4491
 
 ---
 
-## 5. Decisions for you
+## 5. Decisions (Austin, 2026-09-26)
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 |---|---|---|
-| 1 | Withdraw the full upstream merge and run the fork as a deliberate divergence | Yes |
-| 2 | T1 audit-log scrub: also scrub existing log entries? | Leave history as is; fix going forward |
-| 3 | T1 and T2 as one PR or two | One PR ("privacy hardening"): both are small and share a test run |
-| 4 | T3: do your matters use dropdown custom fields? | Needs your answer, or one `get_matter` check |
+| 1 | Withdraw the full upstream merge and run the fork as a deliberate divergence | **Yes.** Phase B is withdrawn (§1); upstream is ported per the watch list (§4) |
+| 2 | T1: also scrub existing audit-log entries? | **Fix later.** T1 fixes logging going forward; the scrub is deferred (T6) |
+| 3 | T1 and T2 as one PR or two | **One PR** ("privacy hardening") |
+| 4 | Do matters use dropdown custom fields? | **Yes.** T3 is in scope as its own PR |
+
+## 6. Order
+
+1. Finish the v2.1 items in §2 (test-record cleanup, restart Desktop, the rich-matter smoke run, W8–W10).
+2. **PR: privacy hardening** (T1 + T2). Gates: `npm test`, `npm run build`, the sentinel audit test and the file-mode test. Live check: one write, then `tail` the audit log to confirm no free text, and `ls -l ~/.clio-mcp` to confirm the permissions.
+3. **PR: picklist labels** (T3). Gates: unit tests with the "before" fixture. Live: `get_matter` and one `clio-export` run on the dropdown matter, checking that labels show, not ids, and the flat-map shape is unchanged for the Conductor.
+4. T4, T5 and T6 only as needed.
