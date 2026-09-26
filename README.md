@@ -350,9 +350,9 @@ Claude selects and calls these tools automatically based on your questions. You 
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_tasks` | `matter_id`, `status` (Pending/Complete/In Progress/In Review/Draft), `complete`, `due_date_start`, `due_date_end`, `created_since`, `updated_since`, `limit`, `page_token` | Lists tasks with description, `completed_at` and timestamps; returns a paginated envelope with `next_page_token` |
+| `list_tasks` | `matter_id`, `status` (Pending/Complete), `complete`, `due_date_start`, `due_date_end`, `created_since`, `updated_since`, `limit`, `page_token` | Lists tasks with description, `completed_at` and timestamps; returns a paginated envelope with `next_page_token` |
 | `create_task` | `matter_id`, `name`, `description`, `priority` (High/Normal/Low), `due_date`, `assignee_id` | Creates a task on a matter; priority defaults to Normal |
-| `update_task` | `task_id`, `name`, `description`, `priority`, `due_date`, `status`, `assignee_id` | Updates one or more fields on an existing task |
+| `update_task` | `task_id`, `name`, `description`, `priority`, `due_date`, `status` (Pending/Complete), `assignee_id` | Updates one or more fields on an existing task |
 | `complete_task` | `task_id` | Marks a task as complete |
 
 ### Calendar (3 tools)

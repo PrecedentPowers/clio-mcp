@@ -99,7 +99,7 @@ const WRITE_ARGS: Record<string, () => Record<string, unknown>> = {
   create_matter: () => ({ client_id: 7, description: "x", status: "open", billable: true }),
   upload_document: () => ({ file_path: uploadFile, matter_id: 9 }),
   create_task: () => ({ matter_id: 9, name: "x", description: "xx", priority: "Normal" }),
-  update_task: () => ({ task_id: 42, status: "In Progress" }),
+  update_task: () => ({ task_id: 42, status: "Pending" }),
   complete_task: () => ({ task_id: 42 }),
   create_calendar_entry: () => ({
     summary: "x", start_at: "2026-01-01T09:00:00Z", end_at: "2026-01-01T10:00:00Z", calendar_owner_id: 5,
@@ -261,13 +261,13 @@ describe("task write tools return real ids and status (conductor-task contract)"
   });
 
   it("update_task returns id, status and matter_id", async () => {
-    mockClioPatch.mockImplementation(clioLike({ ...FULL_TASK, status: "in_progress" }));
+    mockClioPatch.mockImplementation(clioLike({ ...FULL_TASK, status: "pending" }));
     const result = await handlers["update_task"](WRITE_ARGS.update_task()) as any;
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(result.content[0].text)).toEqual({
       success: true,
       task: {
-        id: 42, name: "Draft contract", priority: "Normal", status: "in_progress",
+        id: 42, name: "Draft contract", priority: "Normal", status: "pending",
         due_date: "2026-01-15", matter_id: 99,
       },
     });

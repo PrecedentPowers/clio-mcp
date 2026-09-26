@@ -11,7 +11,8 @@ const TASK_COMPLETE_FIELDS = `${TASK_FIELDS},completed_at`;
 const TASK_LIST_FIELDS =
   "id,name,description,priority,due_at,status,completed_at,created_at,updated_at,assignee{id,name},matter{id,display_number},reminders{id,notification_method}";
 
-const STATUS_MAP: Record<string, string> = { Pending: "pending", Complete: "complete", "In Progress": "in_progress", "In Review": "in_review", "Draft": "draft" };
+// Clio accepts only pending/complete task statuses (live-verified 2026-09-25: other values return 422).
+const STATUS_MAP: Record<string, string> = { Pending: "pending", Complete: "complete" };
 
 export function registerTaskTools(server: McpServer): void {
   server.registerTool(
@@ -20,7 +21,7 @@ export function registerTaskTools(server: McpServer): void {
       description: "List tasks from Clio with optional filters. All filters are native Clio filters. Returns next_page_token when more tasks remain.",
       inputSchema: {
         matter_id: z.number().int().positive().optional().describe("Filter tasks by matter ID"),
-        status: z.enum(["Pending", "Complete", "In Progress", "In Review", "Draft"]).optional().describe("Filter by task status"),
+        status: z.enum(["Pending", "Complete"]).optional().describe("Filter by task status (Clio accepts only Pending or Complete)"),
         complete: z.boolean().optional().describe("true for completed tasks only, false for open tasks only"),
         due_date_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — tasks due on or after this date"),
         due_date_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — tasks due on or before this date"),
@@ -167,7 +168,7 @@ export function registerTaskTools(server: McpServer): void {
         description: z.string().optional().describe("New task description"),
         priority: z.enum(["High", "Normal", "Low"]).optional().describe("New priority"),
         due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) for due date"),
-        status: z.enum(["Pending", "Complete", "In Progress", "In Review", "Draft"]).optional().describe("New task status"),
+        status: z.enum(["Pending", "Complete"]).optional().describe("New task status (Clio accepts only Pending or Complete)"),
         assignee_id: z.number().int().positive().optional().describe("Clio user ID to reassign the task to"),
       },
     },
