@@ -1,6 +1,6 @@
 # Plan: what's left from upstream, and what's left to do
 
-**Status:** v0.4 (2026-09-26). Decisions in §5 made by Austin. Nothing in §3 is built. Each PR still needs its own go-ahead to build.
+**Status:** v0.5 (2026-09-26). Decisions in §5 and the privacy spec's D1–D4 made by Austin. Nothing in §3 is built. Each PR still needs its own go-ahead to build.
 **Fork:** PrecedentPowers/clio-mcp `main` at `db51fdf` (2.1.0, 29 tools): PRs #4 (v2.1 reads), #5 (write-field selection) and #6 (task status restricted to Pending/Complete; smoke script; Desktop-env helper; testing spec with the 2026-09-25 results).
 **Upstream:** oktopeak/clio-mcp `main` at `44916ad` (2.3.0). None of its 35 commits since `d85f3be` is in the fork. PR #5 ported the write-field fix by hand.
 
@@ -46,7 +46,7 @@ These come from the testing spec, §H "Still open". They take priority over §3.
 Each is small and needs no upstream merge. **T1 and T2 ship together as one "privacy hardening" PR** (§5 #3). **T3 is in scope**: matters do use dropdown custom fields (§5 #4). It goes in its own PR after the privacy one, because it touches `clio-export` output.
 
 ### T1. Keep Clio content out of the audit log (privacy-hardening PR)
-**Full spec:** `docs/SPEC-privacy-hardening.md`. Its inventory also found `search_contacts`/`list_documents` `query`, `upload_document` `file_path`, `create_matter` `client_reference`, query strings inside `error_message`, and `audit.log` itself at default permissions.
+**Full spec:** `docs/SPEC-privacy-hardening.md` (v0.2; D1–D4 accepted: search `query` masked, marker `"[omitted]"`, `clio-export` pages deferred to T7, version 2.1.1). Its inventory also found `search_contacts`/`list_documents` `query`, `upload_document` `file_path`, `create_matter` `client_reference`, query strings inside `error_message`, and `audit.log` itself at default permissions.
 **Problem:** the README says the audit log holds metadata, "not Clio content". But on `main`, write tools log free text in `args`:
 - `create_task`: `name` (`tasks.ts` 128, 151)
 - `update_task`: `name`, `description` (193, 217)
@@ -78,6 +78,9 @@ The fork retries 429s 3 times (1, 2 and 4 s; `clioClient.ts` 26). Upstream retri
 - `create_matter` requests `MATTER_DETAIL_FIELDS` on create, which pulls `client.date_of_birth` and custom fields it doesn't return. Use a lean write field set.
 - The legacy `list_time_entries` still returns a bare array with no paging. Leave it until nothing calls it, then remove it.
 
+### T7. Lock down `clio-export` pages — **follow-up** (privacy spec D3)
+`clio-export` writes its matter pages, including client `date_of_birth`, with default permissions (`cli/export.ts` 92, 97). **Before changing it:** confirm how the Practice Conductor reads `--out-dir`, because a sandbox mount or a different user id could lose read access at 0600. Then write the pages at 0600 and create the folder at 0700 when the export creates it. Test: one scheduled Conductor run reads the pages.
+
 ### T6. Scrub existing audit-log entries — **deferred** (§5 #2)
 After T1 merges, a one-off script (not part of the connector) could rewrite `~/.clio-mcp/audit.log` to drop the free-text `args` keys T1 stops logging. Before running it, back up the original somewhere encrypted, and decide whether the original is kept or destroyed. Not scheduled.
 
@@ -106,6 +109,7 @@ To check for new upstream commits: `git fetch upstream && git log --oneline 4491
 ## 6. Order
 
 1. Finish the v2.1 items in §2 (test-record cleanup, restart Desktop, the rich-matter smoke run, W8–W10).
-2. **PR: privacy hardening** (T1 + T2). Gates: `npm test`, `npm run build`, the sentinel audit test and the file-mode test. Live check: one write, then `tail` the audit log to confirm no free text, and `ls -l ~/.clio-mcp` to confirm the permissions.
+2. **PR: privacy hardening** (T1 + T2, version 2.1.1), per `docs/SPEC-privacy-hardening.md` v0.2. Gates: `npm test`, `npm run build`, the sentinel audit test and the file-mode test. Live check: one write, then `tail` the audit log to confirm no free text, and `ls -l ~/.clio-mcp` to confirm the permissions.
 3. **PR: picklist labels** (T3). Gates: unit tests with the "before" fixture. Live: `get_matter` and one `clio-export` run on the dropdown matter, checking that labels show, not ids, and the flat-map shape is unchanged for the Conductor.
-4. T4, T5 and T6 only as needed.
+4. **T7** (`clio-export` page permissions), once the Conductor's read path is confirmed.
+5. T4, T5 and T6 only as needed.

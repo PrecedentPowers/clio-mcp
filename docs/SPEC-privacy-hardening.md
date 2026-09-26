@@ -1,6 +1,6 @@
 # SPEC — privacy-hardening PR (plan T1 + T2)
 
-**Status:** DRAFT v0.1 (2026-09-26). Not built; needs a go-ahead.
+**Status:** v0.2 (2026-09-26). Decisions D1–D4 accepted by Austin (§7). Not built; needs a go-ahead to build.
 **Base:** `main` at `db51fdf` (2.1.0). Line numbers below are from that commit.
 **Plan:** `docs/PLAN-upstream-port-and-merge.md` §3 T1 + T2, shipped as one PR (§5 #3). Cleaning up existing log entries is out of scope (deferred as T6, §5 #2).
 **Goal:** make the README's promise true. The audit log should hold metadata, "not Clio content" (README line 99), and the files holding credentials or client metadata should be readable only by the user.
@@ -124,11 +124,11 @@ Use the helper, since credentials live in the Desktop config: `node scripts/with
 
 ---
 
-## 7. Decisions needed
+## 7. Decisions (accepted by Austin, 2026-09-26)
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 |---|---|---|
-| D1 | Mask `search_contacts` / `list_documents` `query`? This makes the audit trail say *that* a contact search ran, not *for whom*. | **Yes.** A name in a plaintext log is the exact exposure; `result_count` and the timestamp still show the access |
-| D2 | Marker for omitted text: `"[omitted]"` or a length (`"[omitted:42]"`) | `"[omitted]"`. A length adds little and leaks a little. |
-| D3 | Also make `clio-export` pages 0600 (they include client dates of birth)? | **Not in this PR.** First confirm how the Conductor reads `--out-dir`: a sandbox mount or another user id could lose read access. Then do it as a follow-up. |
-| D4 | Version | 2.1.1 |
+| D1 | Mask `search_contacts` / `list_documents` `query`? This makes the audit trail say *that* a contact search ran, not *for whom*. | **Accepted: yes.** A name in a plaintext log is the exact exposure; `result_count` and the timestamp still show the access |
+| D2 | Marker for omitted text: `"[omitted]"` or a length (`"[omitted:42]"`) | **Accepted: `"[omitted]"`.** A length adds little and leaks a little. |
+| D3 | Also make `clio-export` pages 0600 (they include client dates of birth)? | **Accepted: not in this PR.** It's a follow-up (plan T7). First confirm how the Conductor reads `--out-dir`: a sandbox mount or another user id could lose read access. Then do it as a follow-up. |
+| D4 | Version | **Accepted: 2.1.1** |
