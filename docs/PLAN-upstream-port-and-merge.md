@@ -109,7 +109,7 @@ To check for new upstream commits: `git fetch upstream && git log --oneline 4491
 ## 6. Order
 
 1. Finish the v2.1 items in §2 (test-record cleanup, restart Desktop, the rich-matter smoke run, W8–W10).
-2. **PR: privacy hardening** (T1 + T2, version 2.1.1), per `docs/SPEC-privacy-hardening.md` v0.2. Gates: `npm test`, `npm run build`, the sentinel audit test and the file-mode test. Live check: one write, then `tail` the audit log to confirm no free text, and `ls -l ~/.clio-mcp` to confirm the permissions.
+2. **PR: privacy hardening** (T1 + T2, version 2.1.1): **built** on `claude/pensive-cerf-om7l6c`, per `docs/SPEC-privacy-hardening.md` v0.3; live checks L1–L7 pending. Gates: `npm test`, `npm run build`, the sentinel audit test and the file-mode test. Live check: one write, then `tail` the audit log to confirm no free text, and `ls -l ~/.clio-mcp` to confirm the permissions.
 3. **PR: picklist labels** (T3). Gates: unit tests with the "before" fixture. Live: `get_matter` and one `clio-export` run on the dropdown matter, checking that labels show, not ids, and the flat-map shape is unchanged for the Conductor.
 4. **T7** (`clio-export` page permissions), once the Conductor's read path is confirmed.
 5. T4, T5 and T6 only as needed.

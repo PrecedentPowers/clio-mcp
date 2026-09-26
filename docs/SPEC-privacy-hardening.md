@@ -1,6 +1,14 @@
 # SPEC — privacy-hardening PR (plan T1 + T2)
 
-**Status:** v0.2 (2026-09-26). Decisions D1–D4 accepted by Austin (§7). Not built; needs a go-ahead to build.
+**Status:** v0.3 (2026-09-26). D1–D4 accepted (§7). **Built** on `claude/pensive-cerf-om7l6c`; live verification (§5) pending.
+
+**As built, differences from v0.2:**
+- **Also omits `reference`** (`create_activity`'s cheque reference). The fail-closed schema test (T-A1) flagged it on its first run. It isn't logged today, but it's free text.
+- **Temp file names are unique per write** (`tokens.enc.<pid>.<uuid>.tmp`, removed if the rename fails). A fixed `tokens.enc.tmp` makes one of two concurrent saves fail, e.g. the Desktop connector and a scheduled `auth-status` refresh. That was verified with a test that fails on the fixed name.
+- **The sentinel sweep (T-A2) fills every text input not known to be safe**, not only `FREE_TEXT_KEYS`, so a key dropped from the list fails both T-A1 and T-A2.
+- **Permission tests live in new real-filesystem files** (`src/auth/__tests__/tokenPermissions.test.ts`, `src/utils/__tests__/auditLogPermissions.test.ts`). The existing `auditLog.test.ts` and `tokenStorage.test.ts` mock `fs`, so they're unchanged.
+- **Mutation-checked:** removing a key from `FREE_TEXT_KEYS`, the file modes, the chmods, or the query-string strip each fails the relevant tests.
+- **Suite:** 19 files and 181 tests (was 15 and 163). Build clean; no new type errors.
 **Base:** `main` at `db51fdf` (2.1.0). Line numbers below are from that commit.
 **Plan:** `docs/PLAN-upstream-port-and-merge.md` §3 T1 + T2, shipped as one PR (§5 #3). Cleaning up existing log entries is out of scope (deferred as T6, §5 #2).
 **Goal:** make the README's promise true. The audit log should hold metadata, "not Clio content" (README line 99), and the files holding credentials or client metadata should be readable only by the user.
@@ -48,7 +56,7 @@
 
 Handle it in one place, not by hand-editing 20 call sites:
 
-- **`auditLog.ts`:** add `FREE_TEXT_KEYS = {name, description, subject, note, summary, query, file_path, client_reference, body, detail, location}`. In `redactArgs` (the function that already masks secrets), a free-text key with a non-empty string value becomes `"[omitted]"`. An empty or undefined value passes through unchanged, so the log still shows whether a value was supplied. The rule applies at any nesting depth, as `redactArgs` already recurses.
+- **`auditLog.ts`:** add `FREE_TEXT_KEYS = {name, description, subject, note, summary, query, file_path, client_reference, reference, body, detail, location}`. In `redactArgs` (the function that already masks secrets), a free-text key with a non-empty string value becomes `"[omitted]"`. An empty or undefined value passes through unchanged, so the log still shows whether a value was supplied. The rule applies at any nesting depth, as `redactArgs` already recurses.
   - Secrets (`REDACTED_KEYS`) keep `"[REDACTED]"`. The two markers stay distinct, so a reader can tell "secret" from "client content".
 - **Why a key-name rule plus a test, not upstream's per-tool allowlist:** the fork has 29 tools and no registry (`src/tools/index.ts` doesn't exist here). A per-tool allowlist means about 29 hand-kept lists. The key rule covers every current call site with one set. The test in §4 T-A1 makes it **fail closed**: any new string input on any tool must be classified, or CI fails.
 - **`upload_document`:** stop passing `file_path` and `name` into `args` at all (`documents.ts` 275, 289). On success, log `document_id` instead. The rule would already mask them; removing them makes the intent obvious.

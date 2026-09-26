@@ -4,6 +4,7 @@ import path from "path";
 import os from "os";
 import { Entry } from "@napi-rs/keyring";
 import type { ClioTokens } from "./oauth.js";
+import { ensurePrivateDir, restrictMode } from "../utils/privateFs.js";
 
 const TOKEN_DIR = path.join(os.homedir(), ".clio-mcp");
 const TOKEN_FILE = path.join(TOKEN_DIR, "tokens.enc");
@@ -12,6 +13,9 @@ const KEY_FILE = path.join(TOKEN_DIR, "key.hex");
 const ALGORITHM = "aes-256-gcm";
 const KEYCHAIN_SERVICE = "clio-mcp";
 const KEYCHAIN_ACCOUNT = "encryption-key";
+
+// Token files written before owner-only permissions are tightened on first read.
+let tokenPermissionsChecked = false;
 
 export async function getEncryptionKey(): Promise<Buffer> {
   const envKey = process.env.ENCRYPTION_KEY;
@@ -60,7 +64,7 @@ export async function getEncryptionKey(): Promise<Buffer> {
 }
 
 export async function saveTokens(tokens: ClioTokens): Promise<void> {
-  await fs.mkdir(TOKEN_DIR, { recursive: true });
+  await ensurePrivateDir(TOKEN_DIR);
 
   const key = await getEncryptionKey();
   const iv = crypto.randomBytes(16);
@@ -74,7 +78,21 @@ export async function saveTokens(tokens: ClioTokens): Promise<void> {
   const authTag = cipher.getAuthTag();
 
   const combined = Buffer.concat([iv, authTag, encrypted]);
-  await fs.writeFile(TOKEN_FILE, combined);
+  // Write-then-rename so a crash mid-write can't leave a torn token file. The
+  // temp name is unique per write because two processes (the Desktop connector
+  // and a scheduled auth-status refresh) can save at the same moment. It is
+  // created owner-only; the final chmod covers a filesystem that ignores the
+  // create mode.
+  const tmpFile = `${TOKEN_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  await fs.writeFile(tmpFile, combined, { mode: 0o600 });
+  try {
+    await fs.rename(tmpFile, TOKEN_FILE);
+  } catch (err) {
+    await fs.unlink(tmpFile).catch(() => {});
+    throw err;
+  }
+  await restrictMode(TOKEN_FILE, 0o600);
+  tokenPermissionsChecked = true;
 }
 
 export async function loadTokens(): Promise<ClioTokens | null> {
@@ -84,6 +102,12 @@ export async function loadTokens(): Promise<ClioTokens | null> {
   } catch (err: any) {
     if (err.code === "ENOENT") return null;
     throw err;
+  }
+
+  if (!tokenPermissionsChecked) {
+    await restrictMode(TOKEN_DIR, 0o700);
+    await restrictMode(TOKEN_FILE, 0o600);
+    tokenPermissionsChecked = true;
   }
 
   try {
