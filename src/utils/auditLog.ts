@@ -4,6 +4,7 @@ import os from "os";
 import { randomUUID } from "crypto";
 import { loadTokens } from "../auth/tokenStorage.js";
 import { getSessionContext } from "./sessionContext.js";
+import { ensurePrivateDir, restrictMode } from "./privateFs.js";
 
 const STDIO_SESSION_ID = randomUUID();
 
@@ -13,6 +14,24 @@ const AUDIT_FILE = path.join(AUDIT_DIR, "audit.log");
 const REDACTED_KEYS = new Set([
   "access_token", "refresh_token", "client_secret", "password", "token", "encryption_key",
 ]);
+
+/**
+ * Argument keys that carry free text: client content (task wording, note
+ * subjects, time-entry narratives, event titles, matter descriptions), search
+ * terms (often a person's name) and local file paths. The audit log records
+ * that such a value was supplied, never the value: a non-empty string becomes
+ * "[omitted]". auditPrivacy.test.ts fails if any tool gains a string input that
+ * is neither listed here nor classified as safe.
+ */
+export const FREE_TEXT_KEYS = new Set([
+  "name", "description", "subject", "note", "summary", "query", "file_path",
+  "client_reference", "reference", "body", "detail", "location",
+]);
+
+export const OMITTED = "[omitted]";
+
+// Existing audit.log files predate owner-only permissions; tighten once per process.
+let auditPermissionsChecked = false;
 
 function detectMachineIp(): string | undefined {
   for (const addrs of Object.values(os.networkInterfaces())) {
@@ -55,6 +74,8 @@ function redactArgs(args: Record<string, unknown>): Record<string, unknown> {
   for (const [k, v] of Object.entries(args)) {
     if (REDACTED_KEYS.has(k.toLowerCase())) {
       out[k] = "[REDACTED]";
+    } else if (FREE_TEXT_KEYS.has(k.toLowerCase()) && typeof v === "string" && v.length > 0) {
+      out[k] = OMITTED;
     } else if (v !== null && typeof v === "object" && !Array.isArray(v)) {
       out[k] = redactArgs(v as Record<string, unknown>);
     } else {
@@ -68,7 +89,11 @@ export async function appendAuditLog(
   entry: Omit<AuditEntry, "timestamp" | "session_id" | "machine_ip" | "clio_user_id"> & { clio_user_id?: string; result_count?: number }
 ): Promise<void> {
   try {
-    await fs.mkdir(AUDIT_DIR, { recursive: true });
+    if (auditPermissionsChecked) {
+      await fs.mkdir(AUDIT_DIR, { recursive: true, mode: 0o700 });
+    } else {
+      await ensurePrivateDir(AUDIT_DIR);
+    }
 
     const ctx = getSessionContext();
     const session_id = ctx?.sessionId ?? STDIO_SESSION_ID;
@@ -95,7 +120,11 @@ export async function appendAuditLog(
       ...(entry.result_count !== undefined && { result_count: entry.result_count }),
     };
 
-    await fs.appendFile(AUDIT_FILE, JSON.stringify(full) + "\n", "utf8");
+    await fs.appendFile(AUDIT_FILE, JSON.stringify(full) + "\n", { encoding: "utf8", mode: 0o600 });
+    if (!auditPermissionsChecked) {
+      await restrictMode(AUDIT_FILE, 0o600);
+      auditPermissionsChecked = true;
+    }
   } catch (err: any) {
     console.error(`[audit] WARNING: Failed to write audit log: ${err.message}`);
   }

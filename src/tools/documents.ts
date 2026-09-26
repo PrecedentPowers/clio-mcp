@@ -272,7 +272,8 @@ export function registerDocumentTools(server: McpServer): void {
 
         await appendAuditLog({
           tool: "upload_document",
-          args: { file_path, matter_id, name: docName },
+          // The local path and file name often carry a client's name; log the Clio id instead.
+          args: { matter_id, document_id: docId },
           outcome: "success",
           matter_id,
         });
@@ -286,7 +287,7 @@ export function registerDocumentTools(server: McpServer): void {
       } catch (err: any) {
         await appendAuditLog({
           tool: "upload_document",
-          args: { file_path, matter_id },
+          args: { matter_id },
           outcome: "error",
           error_message: err.message,
           matter_id,

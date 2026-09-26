@@ -45,9 +45,12 @@ This section exists because law firms evaluating AI tools have asked the right q
 
 ABA Opinion 512 (2023) requires attorneys using AI tools to understand how those tools work, supervise their outputs, and maintain confidentiality of client information. This connector is designed with those obligations in mind:
 
-- **Audit log.** Every tool call — every time Claude queries Clio on your behalf — is appended to a local log file at `~/.clio-mcp/audit.log`. Each entry records the timestamp, which tool was invoked, what arguments were passed, whether it succeeded, and the Clio user ID. The log is stored on your machine, not in any cloud service. It is append-only and never purged by the software, so your firm retains a complete record of AI-initiated data access.
+- **Audit log.** Every tool call — every time Claude queries Clio on your behalf — is appended to a local log file at `~/.clio-mcp/audit.log`. Each entry records the timestamp, which tool was invoked, what arguments were passed, whether it succeeded, and the Clio user ID. Free text in those arguments (task names, note subjects, time-entry narratives, search terms, file paths) is recorded as `"[omitted]"`, so the log shows what was accessed without copying client content into it. The log is stored on your machine, not in any cloud service. It is append-only and never purged by the software, so your firm retains a complete record of AI-initiated data access.
 
-- **No data retention by the connector.** The connector does not store matter data, client names, or any Clio content. It fetches from the API and passes results to Claude. The only thing persisted locally is your authentication token, and that is encrypted (see below).
+- **What the connector keeps on disk.** When Claude calls a tool, the connector fetches from the Clio API and passes the result to Claude; it does not store the matter data, client names, or other Clio content those calls return. Three things are written locally:
+  - your authentication token, encrypted (see below);
+  - the audit log, which holds metadata with free text omitted (see [Audit log reference](#audit-log-reference));
+  - **only if you run `clio-export`**, the export files. `clio-export --out-dir <path>` writes your matters as JSON files to that folder, including matter descriptions, client names and dates of birth, custom field values, and responsible attorneys. These files are **not encrypted** and use your system's default file permissions. Keep the folder somewhere only you can read, and delete exports you no longer need.
 
 - **Scope limited to tasks, notes, and document uploads.** The connector can create tasks and notes on matters, and upload documents to matters. It cannot create, edit, or delete matters, contacts, calendar entries, or billing records. This is a deliberate v1 design choice — write access is limited to the operations most useful for AI-assisted legal work while minimising liability.
 
@@ -55,7 +58,7 @@ ABA Opinion 512 (2023) requires attorneys using AI tools to understand how those
 
 Your OAuth credentials are never stored in plain text. After you authenticate, the connector encrypts your access token and refresh token using **AES-256-GCM** — the same standard used by financial institutions — and writes the ciphertext to `~/.clio-mcp/tokens.enc`. The encryption key is auto-generated on first run and stored in your OS keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service) — never on the filesystem in plaintext.
 
-If someone obtained the token file without the key, they would not be able to read it.
+If someone obtained the token file without the key, they would not be able to read it. The token file and the `~/.clio-mcp` folder are also readable by your user account only (0600 / 0700); existing installs are tightened automatically the next time the connector reads or saves them.
 
 ### OAuth 2.0 — no passwords stored
 
@@ -96,7 +99,7 @@ To pre-empt a common misread:
 
 - **OAuth tokens** (your Clio access + refresh token) are encrypted with AES-256-GCM at rest in `~/.clio-mcp/tokens.enc`. They cannot be read without the encryption key.
 - **The encryption key itself** is auto-generated on first run and stored in the OS keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service). It never touches the filesystem in plaintext. For CI/headless installs without a keychain, you can override this by setting `ENCRYPTION_KEY` as a 64-character hex string in your environment.
-- **Audit log entries** at `~/.clio-mcp/audit.log` are not encrypted. They contain metadata (timestamps, tool names, parameters with secrets redacted) — not Clio content.
+- **Audit log entries** at `~/.clio-mcp/audit.log` are not encrypted. They contain metadata (timestamps, tool names, IDs, dates and filters, with secrets redacted and free text omitted) — not Clio content. The file is readable by your user account only (0600).
 
 ---
 
@@ -457,12 +460,14 @@ Each entry contains:
 | `session_id` | Per-session UUID (stable for the life of a stdio process; one per HTTP session) |
 | `machine_ip` | LAN IPv4 address of the host that logged the call, when detectable |
 | `tool` | Which tool Claude invoked |
-| `args` | Arguments passed to the tool (secrets are automatically redacted) |
+| `args` | Arguments passed to the tool. IDs, dates, filters and options are recorded as passed. Secrets appear as `"[REDACTED]"`. Free text appears as `"[omitted]"` when a value was supplied: `name`, `description`, `subject`, `note`, `summary`, `query`, `file_path`, `client_reference`, `reference`, `body`, `detail`, `location` |
 | `outcome` | `success`, `error`, or `not_found` |
-| `error_message` | Present only when `outcome` is `error` |
+| `error_message` | Present only when `outcome` is `error`. Clio errors name the endpoint without its query string, so search terms don't reach the log this way either |
 | `clio_user_id` | The Clio user whose credentials were active |
 | `matter_id` | Present for matter-specific queries |
 | `result_count` | Present for list / export tools — number of records returned |
+
+The log file is readable by your user account only (0600, in a 0700 folder); a log created by an earlier version is tightened on the first new entry. Entries written before version 2.1.1 may still contain free text; they are not rewritten.
 
 The log file is append-only and never rotated or truncated by this software. To archive old entries, use your operating system's log rotation tools (`logrotate` on Linux/Mac).
 

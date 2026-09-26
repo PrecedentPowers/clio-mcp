@@ -25,6 +25,17 @@ export function getClioBaseUrl(): string {
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 
+// Error messages reach the audit log and the MCP client. The query string can
+// carry a search term (often a person's name), so it is left out.
+function withoutQuery(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return url.split("?")[0];
+  }
+}
+
 async function clioFetch(url: string, init: RequestInit): Promise<Response> {
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     const res = await fetch(url, init);
@@ -61,7 +72,7 @@ async function clioFetch(url: string, init: RequestInit): Promise<Response> {
           msg = JSON.stringify(json);
         }
       } catch { /* use raw text */ }
-      throw new ClioApiError(res.status, `Clio API error ${res.status} on ${url}: ${msg}`);
+      throw new ClioApiError(res.status, `Clio API error ${res.status} on ${withoutQuery(url)}: ${msg}`);
     }
     return res;
   }
