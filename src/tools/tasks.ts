@@ -5,6 +5,9 @@ import { appendAuditLog } from "../utils/auditLog.js";
 
 const TASK_FIELDS = "id,name,priority,due_at,status,assignee{id,name},matter{id,display_number},reminders{id,notification_method}";
 
+// complete_task also reports completed_at, which the write tools' TASK_FIELDS omits.
+const TASK_COMPLETE_FIELDS = `${TASK_FIELDS},completed_at`;
+
 const TASK_LIST_FIELDS =
   "id,name,description,priority,due_at,status,completed_at,created_at,updated_at,assignee{id,name},matter{id,display_number},reminders{id,notification_method}";
 
@@ -116,7 +119,7 @@ export function registerTaskTools(server: McpServer): void {
         if (due_date) taskData["due_at"] = `${due_date}T00:00:00Z`; // midnight UTC — consistent with calendar tool convention
         if (assignee_id) taskData["assignee"] = { id: assignee_id, type: "User" };
 
-        const data = await clioPost("/tasks.json", { data: taskData });
+        const data = await clioPost("/tasks.json", { data: taskData }, { fields: TASK_FIELDS });
         const task = data.data;
 
         await appendAuditLog({
@@ -181,7 +184,7 @@ export function registerTaskTools(server: McpServer): void {
         if (status !== undefined) taskData["status"] = STATUS_MAP[status];
         if (assignee_id !== undefined) taskData["assignee"] = { id: assignee_id, type: "User" };
 
-        const data = await clioPatch(`/tasks/${task_id}.json`, { data: taskData });
+        const data = await clioPatch(`/tasks/${task_id}.json`, { data: taskData }, { fields: TASK_FIELDS });
         const task = data.data;
 
         await appendAuditLog({
@@ -229,7 +232,7 @@ export function registerTaskTools(server: McpServer): void {
     },
     async ({ task_id }) => {
       try {
-        const data = await clioPatch(`/tasks/${task_id}.json`, { data: { status: STATUS_MAP["Complete"] } });
+        const data = await clioPatch(`/tasks/${task_id}.json`, { data: { status: STATUS_MAP["Complete"] } }, { fields: TASK_COMPLETE_FIELDS });
         const task = data.data;
 
         await appendAuditLog({
