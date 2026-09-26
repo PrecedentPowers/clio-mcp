@@ -31,6 +31,13 @@ vi.mock("../../utils/auditLog.js", () => ({
   appendAuditLog: mockAppendAuditLog,
 }));
 
+// export.ts reads stored tokens once for audit identity; keep the real token
+// file and keychain out of these tests.
+vi.mock("../../auth/tokenStorage.js", () => ({
+  loadTokens: vi.fn().mockResolvedValue(null),
+  saveTokens: vi.fn(),
+}));
+
 import { runClioExport } from "../export.js";
 
 function makeRawMatter(overrides: Record<string, unknown> = {}) {

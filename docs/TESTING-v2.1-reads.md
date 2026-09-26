@@ -1,9 +1,9 @@
 # Testing spec — clio-mcp 2.1.0 read tools
 
-**Covers:** `main` at `47a4569` (PrecedentPowers/clio-mcp#4, merged 2026-09-25), implementing `SPEC-clio-mcp-v2.1-reads.md` (Phase 6).
-**Also covers:** §G, the live **write** test for PrecedentPowers/clio-mcp#5 (write-fields fix, not yet merged). It runs on that PR's branch, not on `main`.
+**Covers:** `main` at `af630ff` (2.1.1): the v2.1 read tools (PrecedentPowers/clio-mcp#4), the write-fields fix (#5), the task-status fix and test tooling (#6), and privacy hardening (#7, **merged** as `af630ff` before its live checks ran — §I; spec `docs/SPEC-privacy-hardening.md`); plus the pending branch `fix/export-auth-redaction-guards` (§J).
+**Also covers:** §G, the live **write** test for PrecedentPowers/clio-mcp#5 (write-fields fix) — merged.
 **Status:** merged **before** live testing. Run this before the Practice Conductor's next scheduled run, because of the calendar/tasks response-shape change (C2, C3).
-**Run by:** Austin, on the Mac that hosts the Claude Desktop connector. Every step is read-only against Clio **except §G**, which writes to a test matter.
+**Run by:** Austin, on the Mac that hosts the Claude Desktop connector. Every step is read-only against Clio **except §G**, which writes to a test matter, and §I, which writes one test note.
 **Pass bar:** every gate below passes, or a failure is written up with a decision and a fix PR.
 **This spec lives in the repo at `docs/TESTING-v2.1-reads.md` and is the master copy.**
 
@@ -14,7 +14,7 @@
 | Tool | Change | Risk to existing callers |
 |---|---|---|
 | `list_communications` | **New.** Emails and calls from Clio's Communications log | None (new) |
-| `list_notes` | **New.** Ported from upstream 2.3.0 | None (new). **Open question:** the `type` filter is sent lowercase (`matter`). Upstream says Clio returns 422 on `Matter`; the third-party OpenAPI copy lists `Matter`. Gate B3 settles it. |
+| `list_notes` | **New.** Ported from upstream 2.3.0 | None (new). **Settled:** per the "Run testing reads 2.1" session (2026-09-25), Clio accepts both `matter` and `Matter` and returns the same rows; `list_notes` returned 2 of 2 on a matter with notes. |
 | `list_activities` | **New.** Time and expense entries, paged | None (new). `list_time_entries` is unchanged. |
 | `list_calendar_entries` | Adds `matter_id`, `calendar_id`, `updated_since`, `limit`, `page_token`, plus `location`, `all_day` and `updated_at` in the output | **The response shape changes from a bare array to `{entries, total_count, has_more, next_page_token}`.** The Practice Conductor's scheduled prompts read this output (Gate C2). |
 | `list_tasks` | Adds `complete`, `created_since`, `updated_since`, `page_token`, plus `description`, `completed_at`, `created_at` and `updated_at` in the output | **The response shape changes from a bare array to `{tasks, …, next_page_token}`.** Check anything that reads `list_tasks` (Gate C3). |
@@ -45,7 +45,7 @@ npm test                        # A2
 | # | Check | Pass |
 |---|---|---|
 | A1 | `npm run build` | Exits 0 with no TypeScript errors |
-| A2 | `npm test` | **14 files / 154 tests on `main`**, **15 / 162 on PR #5's branch (`claude/cool-lovelace-01393d`)**, **15 / 163 on `fix/task-status-and-test-tooling`** |
+| A2 | `npm test` | **19 files / 181 tests on `main` (`af630ff`)**, **20 / 189 on `fix/export-auth-redaction-guards`** |
 | A3 | `node scripts/with-desktop-env.mjs node scripts/smoke-v2.1-reads.mjs --list-only` | `PASS tool registry — 29 tools`. This makes no Clio calls. |
 | A4 | Region | Credentials come from Claude Desktop's config (`claude_desktop_config.json`, `mcpServers.clio.env`), not a `.env` file — this Mac has none. No region is set there, so the client defaults to US `app.clio.com`, and that works for this firm (`auth-status` ok, live reads succeed 2026-09-25). If the firm is ever on Clio Canada, set `CLIO_API_BASE=https://ca.app.clio.com/api/v4` (and the matching `CLIO_AUTH_URL`/`CLIO_TOKEN_URL`) in that same Desktop config `env` block. |
 | A5 | `node scripts/with-desktop-env.mjs node build/index.js auth-status` | One JSON line with `"ok": true`. If not, authenticate in Claude first. |
@@ -60,6 +60,10 @@ npm test                        # A2
 - **Matter B:** any matter with **more than 50 documents**, for the paging check. It can be the same as A.
 
 You need the numeric Clio matter IDs (the number in the matter's Clio URL), not the display numbers.
+
+**Recommended matters:** Matter A — 05259 ST.PIERRE (`1885705940`) or 05272 DIOTTE (`1889052575`), each with 2 logged calls and 2 emails (only 2 of the 80 most recent open matters have any calls). Matter B — 04839 DOUGLAS (`1776367339`): 602 documents across 13 pages; 17 emails across 4 pages.
+
+**Firm-wide limitation:** the 48 most recent tasks and all 200 calendar entries in 2026 are not linked to any matter, so per-matter `list_tasks` and calendar `matter_id` checks pass on empty data by construction and can't be proven on real matches here. 04694-BRASETH remains the weak example on this front — good for emails and documents, zero on calls, notes, activities, tasks and matter calendar entries.
 
 ### B1. Run
 
@@ -77,7 +81,7 @@ The script refuses to run unless `auth-status` reports ok, so it can't pop an OA
 | `list_communications EmailCommunication` / `PhoneCommunication` | Every item has the expected type, all fields are present, paging at 5 per page drains with no duplicate ids | A zero count isn't a failure, but it means Matter A isn't a good test file. The type leaking means Clio ignored the filter. |
 | `list_communications include_body` | `body` is plain text (no tags), ≤ 200 chars, and `body_truncated` is present | Tags present → the stripHtml path missed a form |
 | `body omitted by default` | No `body` key unless it was asked for | — |
-| `list_notes` | Returns notes with `date`, `detail` and `author`, and pages cleanly | **A 422 mentioning `type` settles the casing question in favour of `Matter`**: change `type: matter_id ? "matter" : "contact"` in `src/tools/notes.ts` and re-run. Lowercase `matter` returned no 422 on Braseth, but with 0 notes it is not yet shown to actually return the matter's notes. |
+| `list_notes` | Returns notes with `date`, `detail` and `author`, and pages cleanly | Casing is settled (§0): Clio accepts both `matter` and `Matter` and returns the same rows; confirmed 2 of 2 on a matter with notes in the "Run testing reads 2.1" session (2026-09-25). |
 | `list_activities (both types)` | Both types come back when `type` is omitted | — |
 | `TimeEntry + ExpenseEntry = both` | The per-type counts add up to the combined count | A gap is **not a bug**. It means the matter has HardCost/SoftCost entries, which the unfiltered call includes and the spec's type enum doesn't. Note it. |
 | `status=unbilled` | No returned entry has `billed: true` | — |
@@ -89,7 +93,7 @@ The script refuses to run unless `auth-status` reports ok, so it can't pop an OA
 | `list_documents paging` | More than one page, no duplicates, drains to the end | "pick a matter with more than 50 documents" → choose another Matter B |
 | `list_documents updated_since` | Every returned doc has `updated_at` ≥ since | — |
 
-A zero count on notes, tasks, activities or calendar entries means that check passed on empty data and proved nothing — choose a Matter A that has them. Example: 04694-BRASETH (2026-09-25) had emails and 51 documents but zero calls, notes, activities, tasks and matter calendar entries.
+A zero count on notes, tasks, activities or calendar entries means that check passed on empty data and proved nothing — choose a Matter A that has them. 04694-BRASETH is the weak example here (§B0).
 
 ---
 
@@ -159,19 +163,17 @@ Then quit and reopen Claude Desktop. Nothing in this PR writes to Clio, so there
 
 ---
 
-## G. Write tools — PrecedentPowers/clio-mcp#5 (before merging it)
+## G. Write tools — PrecedentPowers/clio-mcp#5 (merged as `952f064`)
 
 **What PR #5 changes:** every create/update tool now asks Clio for `fields`. Before the change, Clio returned only the id, so these tools reported `success: true` with null fields. `conductor-task` depends on the task tools returning a real id and status.
-**This section writes to Clio.** Use a **dedicated test matter** (not a client file), and delete what it creates (G5). §§A–F are unaffected: they run on `main`, which doesn't contain PR #5.
+**This section writes to Clio.** Use a **dedicated test matter** (not a client file), and delete what it creates (G5). PR #5 merged before W9–W10 ran, so §G now runs on `main`.
 
-### G1. Switch to the PR branch
+### G1. Build `main`
 
 ```bash
-git checkout main && git pull        # finish §§A–F on main first
-git fetch origin
-git checkout claude/cool-lovelace-01393d
+git checkout main && git pull
 npm ci && npm run build
-npm test                             # 15 files, 162 tests, all passing (15 / 163 once the status fix is stacked on it)
+npm test                             # 19 files, 181 tests (main)
 ```
 
 Quit and reopen Claude Desktop so it loads this build. Confirm `node scripts/with-desktop-env.mjs node build/index.js auth-status` reports `"ok": true`.
@@ -198,7 +200,7 @@ The **before-fix symptom** is a field showing `null` (or `"due_at": null` when a
 | W7 | `create_activity` — `type: "ExpenseEntry"`, `date: 2026-09-25`, `matter_id: T`, `price: 1`, `note: "ZZ smoke expense"` | **`type: "ExpenseEntry"`** (unverified field), `price: 1`, `total`, `matter` |
 | W8 | *(optional: creates a matter)* `create_matter` — `client_id` of a test contact, `description: "ZZ smoke matter"`, `originating_attorney_id: U`, `client_reference: "ZZ-SMOKE"` | `display_number`, `client`, **`originating_attorney`** and **`client_reference: "ZZ-SMOKE"`** (unverified fields) |
 
-**If Clio rejects a field name:** the tool returns `isError` with a Clio 400 that names the field. Record it; the fix is to drop or rename that one name in PR #5 (`TASK_COMPLETE_FIELDS` in `tasks.ts`, `ACTIVITY_WRITE_FIELDS` in `activities.ts`, `MATTER_CREATE_FIELDS` in `matters.ts`). In testing (W2, 2026-09-25), a 422 validation error left the task unchanged — but always confirm with a read (e.g. `list_tasks` on T) before retrying or assuming nothing was written.
+**If Clio rejects a field name:** the tool returns `isError` with a Clio 400 that names the field. Since PR #7, Clio error messages show the URL path without its query string, so the `fields=` list no longer appears in the error — but Clio's own message text still names the rejected field. Record it; the fix is to drop or rename that one name in PR #5 (`TASK_COMPLETE_FIELDS` in `tasks.ts`, `ACTIVITY_WRITE_FIELDS` in `activities.ts`, `MATTER_CREATE_FIELDS` in `matters.ts`). In testing (W2, 2026-09-25), a 422 validation error left the task unchanged — but always confirm with a read (e.g. `list_tasks` on T) before retrying or assuming nothing was written.
 
 ### G4. conductor-task end to end
 
@@ -213,17 +215,16 @@ Delete the W1/W9 tasks, the W4 note, the W5 calendar entry, the W6 time entry an
 
 ### G6. Audit log
 
-`tail -n 20 ~/.clio-mcp/audit.log`: one `outcome: "success"` line per W-call, with `matter_id: T` where the tool records it. `create_note` logs `subject` in its args (by design today); no note body or task description is logged.
+`tail -n 20 ~/.clio-mcp/audit.log`: since PR #7, the audit log records free-text arguments as `"[omitted]"` (keys: `name`, `description`, `subject`, `note`, `summary`, `query`, `file_path`, `client_reference`, `reference`, `body`, `detail`, `location`). Pass = one success line per W-call, `matter_id: T` where recorded, and every free-text arg reads `"[omitted]"`.
 
-`log_time_entry` and `create_activity` also log the time/expense `note` text in `args` (e.g. "ZZ smoke"). This is existing behaviour, not something PR #5 introduced — flagging it as an open decision, since time-entry notes can carry client detail.
+### G7. Sign-off for PR #5 (merged before W9–W10)
 
-### G7. Sign-off for PR #5
-
-- [ ] G1 unit tests and build pass
-- [ ] W1–W7 (and W8 if run) return every listed field populated, and none of the five unverified names is rejected; or a fix is pushed to PR #5 and W-calls re-run
+- [x] G1 unit tests and build pass
+- [x] W1–W7 return every listed field populated; `completed_at`, `non_billable` and `type` accepted (2026-09-25, §H)
+- [ ] W8, if run: `originating_attorney` and `client_reference` accepted
 - [ ] W9–W10 pass
 - [ ] G5 cleanup done
-- [ ] Merge PR #5, then `git checkout main && git pull && npm run build` and restart Claude Desktop
+- [x] Merged (`952f064`)
 
 ---
 
@@ -266,4 +267,60 @@ Passed on empty data (not proven): phone calls, notes, activities, tasks, calend
 
 Records to delete in G5 (all on 04041-Test): task 1617900050, note 3150655445, calendar entry 5174035760, time entry 8824500230, expense 8824500350.
 
-**Still open:** B′ M1–M7; C1 (this chat's connector still returned the pre-v2.1 bare array — Claude Desktop not restarted since the rebuild); C2 live conductor run; C4; C5; C6; B coverage on a richer Matter A; W8 (`originating_attorney`, `client_reference` still unverified); W9–W10; G5 cleanup.
+From the "Run testing reads 2.1" session (same day):
+
+- **B1:** 19/19 on each of three runs (ST.PIERRE, DOUGLAS, and a matter with notes); DOUGLAS used for document paging.
+- Notes casing settled (§0 above).
+- **D1–D2:** pass on 60 audit lines.
+- **D2a (2026-09-25):** no picklist custom fields — across 533 matters in the Conductor's `clio_export.json` (20:50), no custom field value is an option id; "Private / Legal Aid" is free text.
+
+**Still open:** see §K.
+
+---
+
+## I. Privacy hardening — PR #7 (2.1.1), merged before live checks
+
+PR #7 (privacy hardening, 2.1.1) merged to main as `af630ff` **before** its live verification ran. These checks run now, on `main`. They adapt §5 of `docs/SPEC-privacy-hardening.md` (L1–L7); commands use `node scripts/with-desktop-env.mjs …`.
+
+| # | Step | Pass |
+|---|---|---|
+| L1 | `ls -la ~/.clio-mcp` **before** pulling/building `af630ff` in the connector folder (the connector is still at `db51fdf`) | Record the current modes (expect 0644/0755) |
+| L2 | Build `main` (`af630ff`); `node scripts/with-desktop-env.mjs node build/index.js auth-status` | `"ok": true` with **no re-auth**; afterwards `tokens.enc` is `-rw-------` and `~/.clio-mcp` is `drwx------` |
+| L3 | Restart Claude Desktop; `search_contacts` for a real surname; then `create_note` on 04041-Test with subject "ZZ privacy check" | `tail -n 5 ~/.clio-mcp/audit.log` shows `"query":"[omitted]"` and `"subject":"[omitted]"`; `audit.log` is `-rw-------` |
+| L4 | After L3–L6: `grep '"outcome":"error"' ~/.clio-mcp/audit.log \| tail` | Any **new** `error_message` has no `?` query string |
+| L5 | `node scripts/with-desktop-env.mjs node scripts/smoke-v2.1-reads.mjs --matter 1701593810` (Braseth, for comparability with the 19/19 run) | Same pass count (19/19); the new audit lines hold no free text |
+| L6 | `clio-export` as the Conductor runs it | Exit 0; the pages are the same as before the change |
+| L7 | Clean up: delete the "ZZ privacy check" note on 04041-Test | — |
+
+**Rollback:** `git checkout db51fdf && npm ci && npm run build` (the last commit before #7), then restart Desktop; `git checkout main` afterwards to return to the tip. Tightened permissions stay tightened, which is harmless, and no data format changed.
+
+**Residual risk (from SPEC §6):** Clio's own error text might still echo a submitted value (unverified — watch L4); the Desktop MCP console log is outside this PR's control; existing pre-#7 log lines keep their free text until a separate cleanup pass.
+
+---
+
+## J. Export auth guard — `fix/export-auth-redaction-guards` (pending)
+
+| # | Check | Result |
+|---|---|---|
+| J1 | Automated — `src/cli/__tests__/exportAuth.test.ts` | Missing token → exit 2, sign-in never called, no network; expired → refresh + save with carried `clio_user_id`; valid → stored token; audit entries keep `clio_user_id` |
+| J2 | Automated — the returned-fields guard in `writeFieldsSelection.test.ts` | Fails naming (e.g. "complete_task reads completed_at but does not request it") |
+| J3 | Live, **done 2026-09-25** | With `HOME` pointed at an empty temp folder and `CLAUDE_DESKTOP_CONFIG` at the real config, `clio-export` exited 2 at once with "re-authenticate via the Clio MCP in Claude", no browser, no listener on port 5678, audit line "not authenticated — no tokens stored"; real token file untouched |
+| J4 | Live, **after merge** | One `clio-export` run as the Conductor runs it: exit 0, pages same as before, audit line has `session_id: "clio-export-cli"` and `clio_user_id` |
+
+---
+
+## K. Remaining regimen — run in this order
+
+1. In the connector folder: `ls -la ~/.clio-mcp` (I-L1), then `git pull && npm ci && npm run build` (to `af630ff`).
+2. I-L2 auth-status + permissions.
+3. Quit and reopen Claude Desktop → C1.
+4. I-L3 (privacy: search + ZZ privacy note).
+5. G4 W9–W10 (conductor-task round trip on 04041-Test).
+6. I-L5 smoke on Braseth; optionally B1 on ST.PIERRE + DOUGLAS.
+7. C4 / I-L6: clio-export as the Conductor runs it.
+8. C2 (Conductor morning run), C5 (natural-language calls/emails on ST.PIERRE), B′ M1–M7 (ST.PIERRE + DOUGLAS).
+9. Optional W8 (`create_matter`: `originating_attorney`, `client_reference`).
+10. I-L4 error-message check.
+11. Cleanup in the Clio web UI: the five §H records, the W9 task (and vault line), the ZZ privacy note, the W8 matter if made.
+12. After `fix/export-auth-redaction-guards` merges: pull, build, restart Desktop, J4.
+13. Deferred: C6 (statement-of-account round); D7 (conductor-task step 3b paging, after W9–W10 pass).
