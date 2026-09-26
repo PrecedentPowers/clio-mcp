@@ -47,7 +47,10 @@ ABA Opinion 512 (2023) requires attorneys using AI tools to understand how those
 
 - **Audit log.** Every tool call — every time Claude queries Clio on your behalf — is appended to a local log file at `~/.clio-mcp/audit.log`. Each entry records the timestamp, which tool was invoked, what arguments were passed, whether it succeeded, and the Clio user ID. Free text in those arguments (task names, note subjects, time-entry narratives, search terms, file paths) is recorded as `"[omitted]"`, so the log shows what was accessed without copying client content into it. The log is stored on your machine, not in any cloud service. It is append-only and never purged by the software, so your firm retains a complete record of AI-initiated data access.
 
-- **No data retention by the connector.** The connector does not store matter data, client names, or any Clio content. It fetches from the API and passes results to Claude. The only thing persisted locally is your authentication token, and that is encrypted (see below).
+- **What the connector keeps on disk.** When Claude calls a tool, the connector fetches from the Clio API and passes the result to Claude; it does not store the matter data, client names, or other Clio content those calls return. Three things are written locally:
+  - your authentication token, encrypted (see below);
+  - the audit log, which holds metadata with free text omitted (see [Audit log reference](#audit-log-reference));
+  - **only if you run `clio-export`**, the export files. `clio-export --out-dir <path>` writes your matters as JSON files to that folder, including matter descriptions, client names and dates of birth, custom field values, and responsible attorneys. These files are **not encrypted** and use your system's default file permissions. Keep the folder somewhere only you can read, and delete exports you no longer need.
 
 - **Scope limited to tasks, notes, and document uploads.** The connector can create tasks and notes on matters, and upload documents to matters. It cannot create, edit, or delete matters, contacts, calendar entries, or billing records. This is a deliberate v1 design choice — write access is limited to the operations most useful for AI-assisted legal work while minimising liability.
 
