@@ -46,6 +46,7 @@ These come from the testing spec, §H "Still open". They take priority over §3.
 Each is small and needs no upstream merge. **T1 and T2 ship together as one "privacy hardening" PR** (§5 #3). **T3 is in scope**: matters do use dropdown custom fields (§5 #4). It goes in its own PR after the privacy one, because it touches `clio-export` output.
 
 ### T1. Keep Clio content out of the audit log (privacy-hardening PR)
+**Full spec:** `docs/SPEC-privacy-hardening.md`. Its inventory also found `search_contacts`/`list_documents` `query`, `upload_document` `file_path`, `create_matter` `client_reference`, query strings inside `error_message`, and `audit.log` itself at default permissions.
 **Problem:** the README says the audit log holds metadata, "not Clio content". But on `main`, write tools log free text in `args`:
 - `create_task`: `name` (`tasks.ts` 128, 151)
 - `update_task`: `name`, `description` (193, 217)
