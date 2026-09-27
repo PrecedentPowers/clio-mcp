@@ -1,8 +1,12 @@
 # SPEC — dropdown (picklist) custom fields show labels, not option ids (plan T3)
 
-**Status:** v0.2 (2026-09-27). Decisions D1–D4 accepted by Austin (§7). Not built; needs a go-ahead to build.
+**Status:** **CLOSED, no code change** (v0.3, 2026-09-27; closed by Austin).
+On 2026-09-27, `scripts/probe-custom-fields.mjs` on the live account found **no dropdown (picklist) custom fields on matters**. `/custom_fields.json?parent_type=Matter` returned 200 with 8 definitions: 3 `text_line`, 1 `text_area`, 3 `currency`, 1 `checkbox`. A scan of 200 open matters found no dropdown values, and no `contact`/`matter` type fields.
+The problem this spec fixes can't happen on this account today: text, currency and checkbox values already read correctly (live-checked 2026-06-05, `matters.ts` 21–25).
+**Trigger to reopen:** a dropdown custom field is added to matters in Clio. Then re-run `node scripts/with-desktop-env.mjs node scripts/probe-custom-fields.mjs --scan 200`. If it reports option ids, build this spec as written; the design and decisions below still stand. The same applies to `contact`/`matter` type fields (T3b).
+**Kept for that case:** the design (§2), tests (§5), live checks (§6) and decisions (§7) are unchanged below. Step 0's answer is above.
 **Base:** `main` at `af630ff` (2.1.1). Line numbers below are from that commit.
-**Plan:** `docs/PLAN-upstream-port-and-merge.md` §3 T3. In scope because matters use dropdown custom fields (§5 #4). Its own PR, because it changes what `clio-export` writes.
+**Plan:** `docs/PLAN-upstream-port-and-merge.md` §3 T3 (closed). It was opened on the understanding that matters use dropdown custom fields (plan §5 #4); step 0 showed they don't.
 
 ---
 
