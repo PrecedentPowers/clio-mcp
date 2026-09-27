@@ -70,7 +70,16 @@ Two ways to get the label:
 
 ## 4. Build steps
 
-0. **Confirm the symptom (live, before any code).** On the Mac: `get_matter` on a matter that has a dropdown set, via Claude Desktop or the Inspector, then compare `custom_field_values_raw` with the Clio UI.
+0. **Confirm the symptom (live, before any code).** Run the read-only probe on the Mac:
+   ```bash
+   npm run build
+   node scripts/with-desktop-env.mjs node scripts/probe-custom-fields.mjs --scan 200
+   # or, for a matter you already know has a dropdown set:
+   node scripts/with-desktop-env.mjs node scripts/probe-custom-fields.mjs --matter <id>
+   ```
+   It makes no writes and doesn't touch the audit log. It refuses to run unless `auth-status` reports ok. It prints field names, types and dropdown ids/labels only; other custom field values are never printed. It reads the field definitions (reporting whether they're readable or refused with a 403), matches each dropdown value against the option ids and labels, and prints a one-line verdict plus whether any `contact`/`matter` type fields are in use (for D2/T3b). The steps below are what it automates.
+
+   The manual equivalent: On the Mac: `get_matter` on a matter that has a dropdown set, via Claude Desktop or the Inspector, then compare `custom_field_values_raw` with the Clio UI.
    - **If a picklist's `value` is an id,** save that JSON (with names changed to "ZZ") as the test fixture and continue.
    - **If `value` is already the label,** upstream was wrong for this account. Stop: add one test pinning that behaviour and close T3 with no code change.
    - **Also record (for D2):** does any matter use a `contact` or `matter` type custom field, and what does its `value` hold?
