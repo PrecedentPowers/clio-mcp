@@ -1,6 +1,6 @@
 # SPEC — dropdown (picklist) custom fields show labels, not option ids (plan T3)
 
-**Status:** DRAFT v0.1 (2026-09-26). Not built; needs a go-ahead.
+**Status:** v0.2 (2026-09-27). Decisions D1–D4 accepted by Austin (§7). Not built; needs a go-ahead to build.
 **Base:** `main` at `af630ff` (2.1.1). Line numbers below are from that commit.
 **Plan:** `docs/PLAN-upstream-port-and-merge.md` §3 T3. In scope because matters use dropdown custom fields (§5 #4). Its own PR, because it changes what `clio-export` writes.
 
@@ -73,13 +73,14 @@ Two ways to get the label:
 0. **Confirm the symptom (live, before any code).** On the Mac: `get_matter` on a matter that has a dropdown set, via Claude Desktop or the Inspector, then compare `custom_field_values_raw` with the Clio UI.
    - **If a picklist's `value` is an id,** save that JSON (with names changed to "ZZ") as the test fixture and continue.
    - **If `value` is already the label,** upstream was wrong for this account. Stop: add one test pinning that behaviour and close T3 with no code change.
+   - **Also record (for D2):** does any matter use a `contact` or `matter` type custom field, and what does its `value` hold?
    - **Also record:** does `field_type` read `"picklist"`? And does `/custom_fields.json?parent_type=Matter&fields=id,name,field_type,picklist_options{id,option}` return 200? That's a quick curl via `with-desktop-env`, or run it in step 5.
 1. Branch from `main`.
 2. `picklistLabels.ts` with its unit tests.
 3. Change `flattenCustomFields`; update `get_matter` and `export.ts`.
 4. Tests (§5), `npm test`, `npm run build`, and a self-review of the diff.
 5. Live verification (§6).
-6. README line; version bump (D3); PR.
+6. README line; version **2.1.2** in `package.json`, `server.json` and the lockfile; PR. **Merge only after L0 passes.**
 
 ---
 
@@ -104,18 +105,19 @@ Two ways to get the label:
 | L1 | `get_matter` on the step-0 dropdown matter | `custom_fields["<field>"]` equals the label shown in Clio; `custom_field_values_raw` still shows the id; no `custom_fields_warnings` |
 | L2 | `get_matter` on a matter with no dropdown value | Same output as before the change |
 | L3 | `clio-export` as the Conductor runs it (`with-desktop-env`) | Exit 0; the dropdown matter's page shows the label; pages for matters without dropdowns are unchanged, apart from the dropdown fields themselves |
-| L4 | The Conductor's next scheduled run reads the pages | No errors. See D1: anything that matched on the old numeric ids now sees labels. |
+| L0 | **Before merging (D1):** search `practice-conductor/SCHEDULED-RUN.md`, the other Conductor prompts, the statement-of-account skill and the vault's matter notes for each dropdown field's name, and for any numeric option id from step 0 | Nothing matches on the numeric value; or each match is updated to the label in the same change window |
+| L4 | The Conductor's next scheduled run reads the pages | No errors, and any consumer updated in L0 reads the label |
 | L5 | Audit log tail | The usual `get_matter` / `clio_export_cli` lines; no free text (2.1.1 rules) |
 
 **Rollback:** check out the previous `main` and rebuild. Nothing is stored, so there's nothing to migrate.
 
 ---
 
-## 7. Decisions needed
+## 7. Decisions (accepted by Austin, 2026-09-27)
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 |---|---|---|
-| D1 | Does anything downstream (Conductor prompts, the vault, statement-of-account) match on the **numeric** dropdown values from `clio-export` or `get_matter`? If so, it must switch to labels when this merges. | Check `practice-conductor/SCHEDULED-RUN.md` and the vault's matter notes for dropdown fields before merging. **Needs your answer.** |
-| D2 | Also resolve `contact`/`matter` type custom fields to names? | **Not in this PR.** First confirm in step 0 whether any matter uses them and what `value` holds; then a follow-up (T3b). |
-| D3 | Version | **2.1.2**: a fix to output values, with no new tool or input |
-| D4 | When a label can't be resolved: `null` plus a warning, or keep the id plus a warning? | **`null` plus a warning.** An id reads as data in a brief or an export, and upstream made the same call after a firm's report. |
+| D1 | Does anything downstream (Conductor prompts, the vault, statement-of-account) match on the **numeric** dropdown values from `clio-export` or `get_matter`? If so, it must switch to labels when this merges. | **Accepted: check before merging.** Now a pre-merge gate, §6 L0. |
+| D2 | Also resolve `contact`/`matter` type custom fields to names? | **Accepted: not in this PR.** Step 0 records whether any matter uses them. If so, follow-up plan item T3b. |
+| D3 | Version | **Accepted: 2.1.2.** A fix to output values, with no new tool or input. |
+| D4 | When a label can't be resolved: `null` plus a warning, or keep the id plus a warning? | **Accepted: `null` plus a warning.** An id reads as data in a brief or an export, and upstream made the same call after a firm's report. |

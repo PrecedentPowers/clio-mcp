@@ -67,7 +67,10 @@ On a criminal defence file those fields can name a complainant or describe instr
 **Test:** save tokens into a temp HOME and assert the file mode is 0600 and the folder is 0700.
 
 ### T3. Picklist custom fields read as option ids (own PR, after T1+T2)
-**Full spec:** `docs/SPEC-picklist-labels.md` (v0.1). It recommends resolving labels from `/custom_fields.json` rather than changing `MATTER_DETAIL_FIELDS`, and needs a live check (step 0) plus decision D1 first.
+**Full spec:** `docs/SPEC-picklist-labels.md` (v0.2; D1–D4 accepted). Labels come from `/custom_fields.json` and `MATTER_DETAIL_FIELDS` is unchanged. An unresolved label shows as `null` plus a warning. Version 2.1.2. A live check comes first (step 0), and there's a pre-merge search of downstream consumers for numeric dropdown values (L0).
+
+### T3b. `contact`/`matter` type custom fields show ids — **follow-up, only if used** (T3 spec D2)
+These likely hold an id, as picklists do. T3's step 0 records whether any matter uses them. If one does, resolve each to the contact or matter name, with the same `null`-plus-warning rule. Not scheduled.
 **Problem (not verified on your data):** `flattenCustomFields` takes `cfv.value` first (`matters.ts` ~44), and `MATTER_DETAIL_FIELDS` doesn't request `picklist_option`. Upstream (8c617f6) says a picklist's `value` is the option **id**. So any dropdown-type custom field would reach `get_matter` and `clio-export` as a number, not its label.
 **Confirm the symptom first:** run `get_matter` on a matter that has a dropdown custom field, and compare `custom_fields` with the Clio UI. Save that output as the "before" fixture for the PR's test.
 **Fix:** port upstream's approach narrowly. Take the label from the response when present; otherwise do one read of `custom_fields.json` per call to map option ids to labels. Never present the id as the value. Keep the flat-map shape that `clio-export` consumers expect.
