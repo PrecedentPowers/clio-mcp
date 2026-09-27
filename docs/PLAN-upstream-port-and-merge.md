@@ -1,6 +1,6 @@
 # Plan: what's left from upstream, and what's left to do
 
-**Status:** v0.5 (2026-09-26). Decisions in §5 and the privacy spec's D1–D4 made by Austin. Nothing in §3 is built. Each PR still needs its own go-ahead to build.
+**Status:** v0.6 (2026-09-27). T1 + T2 merged as PrecedentPowers/clio-mcp#7 (2.1.1); live checks pending. T3 and T3b closed with no code change: the account has no matter dropdown fields. Each remaining item still needs its own go-ahead.
 **Fork:** PrecedentPowers/clio-mcp `main` at `db51fdf` (2.1.0, 29 tools): PRs #4 (v2.1 reads), #5 (write-field selection) and #6 (task status restricted to Pending/Complete; smoke script; Desktop-env helper; testing spec with the 2026-09-25 results).
 **Upstream:** oktopeak/clio-mcp `main` at `44916ad` (2.3.0). None of its 35 commits since `d85f3be` is in the fork. PR #5 ported the write-field fix by hand.
 
@@ -43,7 +43,7 @@ These come from the testing spec, §H "Still open". They take priority over §3.
 
 ## 3. Targeted changes (replace Phase B)
 
-Each is small and needs no upstream merge. **T1 and T2 ship together as one "privacy hardening" PR** (§5 #3). **T3 is in scope**: matters do use dropdown custom fields (§5 #4). It goes in its own PR after the privacy one, because it touches `clio-export` output.
+Each is small and needs no upstream merge. **T1 and T2 ship together as one "privacy hardening" PR** (§5 #3). **T3 is closed** (see T3): the live probe found no dropdown custom fields on matters, which revises §5 #4.
 
 ### T1. Keep Clio content out of the audit log (privacy-hardening PR)
 **Full spec:** `docs/SPEC-privacy-hardening.md` (v0.2; D1–D4 accepted: search `query` masked, marker `"[omitted]"`, `clio-export` pages deferred to T7, version 2.1.1). Its inventory also found `search_contacts`/`list_documents` `query`, `upload_document` `file_path`, `create_matter` `client_reference`, query strings inside `error_message`, and `audit.log` itself at default permissions.
@@ -66,7 +66,18 @@ On a criminal defence file those fields can name a complainant or describe instr
 **Fix:** `mkdir` with `mode: 0o700`, `writeFile` with `mode: 0o600`, and `chmod` both on each save so existing installs are tightened. This matches upstream's permissions. **Keep the 16-byte IV**, so no re-auth is needed.
 **Test:** save tokens into a temp HOME and assert the file mode is 0600 and the folder is 0700.
 
-### T3. Picklist custom fields read as option ids (own PR, after T1+T2)
+### T3. Picklist custom fields read as option ids — **CLOSED, no code change** (2026-09-27)
+On 2026-09-27, `scripts/probe-custom-fields.mjs` on the live account found **no dropdown (picklist) custom fields on matters**. `/custom_fields.json?parent_type=Matter` returned 200 with 8 definitions: 3 `text_line`, 1 `text_area`, 3 `currency`, 1 `checkbox`. A scan of 200 open matters found no dropdown values, and no `contact`/`matter` type fields. Nothing reads as an id today.
+**Reopen if** a dropdown field is added to matters: re-run the probe (`--scan 200`), and if it reports option ids, build `docs/SPEC-picklist-labels.md` as written.
+
+*Original entry, kept for reference:*
+**Full spec:** `docs/SPEC-picklist-labels.md` (v0.2; D1–D4 accepted). Labels come from `/custom_fields.json` and `MATTER_DETAIL_FIELDS` is unchanged. An unresolved label shows as `null` plus a warning. Version 2.1.2. A live check comes first (step 0), and there's a pre-merge search of downstream consumers for numeric dropdown values (L0).
+
+### T3b. `contact`/`matter` type custom fields show ids — **CLOSED, not used** (2026-09-27)
+The probe found no `contact` or `matter` type custom fields on matters. The same reopen trigger as T3 applies.
+
+*Original entry:*
+These likely hold an id, as picklists do. T3's step 0 records whether any matter uses them. If one does, resolve each to the contact or matter name, with the same `null`-plus-warning rule. Not scheduled.
 **Problem (not verified on your data):** `flattenCustomFields` takes `cfv.value` first (`matters.ts` ~44), and `MATTER_DETAIL_FIELDS` doesn't request `picklist_option`. Upstream (8c617f6) says a picklist's `value` is the option **id**. So any dropdown-type custom field would reach `get_matter` and `clio-export` as a number, not its label.
 **Confirm the symptom first:** run `get_matter` on a matter that has a dropdown custom field, and compare `custom_fields` with the Clio UI. Save that output as the "before" fixture for the PR's test.
 **Fix:** port upstream's approach narrowly. Take the label from the response when present; otherwise do one read of `custom_fields.json` per call to map option ids to labels. Never present the id as the value. Keep the flat-map shape that `clio-export` consumers expect.
@@ -104,12 +115,12 @@ To check for new upstream commits: `git fetch upstream && git log --oneline 4491
 | 1 | Withdraw the full upstream merge and run the fork as a deliberate divergence | **Yes.** Phase B is withdrawn (§1); upstream is ported per the watch list (§4) |
 | 2 | T1: also scrub existing audit-log entries? | **Fix later.** T1 fixes logging going forward; the scrub is deferred (T6) |
 | 3 | T1 and T2 as one PR or two | **One PR** ("privacy hardening") |
-| 4 | Do matters use dropdown custom fields? | **Yes.** T3 is in scope as its own PR |
+| 4 | Do matters use dropdown custom fields? | **Yes** (2026-09-26); **revised by the live probe (2026-09-27): no matter dropdown fields exist.** T3 closed |
 
 ## 6. Order
 
 1. Finish the v2.1 items in §2 (test-record cleanup, restart Desktop, the rich-matter smoke run, W8–W10).
-2. **PR: privacy hardening** (T1 + T2, version 2.1.1): **built** on `claude/pensive-cerf-om7l6c`, per `docs/SPEC-privacy-hardening.md` v0.3; live checks L1–L7 pending. Gates: `npm test`, `npm run build`, the sentinel audit test and the file-mode test. Live check: one write, then `tail` the audit log to confirm no free text, and `ls -l ~/.clio-mcp` to confirm the permissions.
-3. **PR: picklist labels** (T3). Gates: unit tests with the "before" fixture. Live: `get_matter` and one `clio-export` run on the dropdown matter, checking that labels show, not ids, and the flat-map shape is unchanged for the Conductor.
+2. **PR: privacy hardening** (T1 + T2, version 2.1.1): **merged** as PrecedentPowers/clio-mcp#7, per `docs/SPEC-privacy-hardening.md` v0.3; live checks L1–L7 still pending. Gates: `npm test`, `npm run build`, the sentinel audit test and the file-mode test. Live check: one write, then `tail` the audit log to confirm no free text, and `ls -l ~/.clio-mcp` to confirm the permissions.
+3. ~~PR: picklist labels (T3)~~ **Closed, no code change**: no matter dropdown fields exist (probe, 2026-09-27). Reopen per T3 if one is added.
 4. **T7** (`clio-export` page permissions), once the Conductor's read path is confirmed.
 5. T4, T5 and T6 only as needed.
