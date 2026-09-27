@@ -283,3 +283,115 @@ describe("task write tools return real ids and status (conductor-task contract)"
     });
   });
 });
+
+// A write can request a field selection (the sweep above) and still under-request
+// it — asking for less than the handler actually reads back off the response. A
+// tool that reads a property Clio was never asked for silently gets `undefined`
+// for it. This guard catches that by recording every top-level property each
+// handler reads off the written record and checking it against what was requested.
+describe("every write tool only reads properties it requested", () => {
+  /** Split a Clio fields string into its top-level names, e.g. "id,matter{id},x" -> [id, matter, x]. */
+  function parseTopLevelFields(fields: string): Set<string> {
+    const names = new Set<string>();
+    let depth = 0;
+    let current = "";
+    for (const ch of fields) {
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      else if (ch === "," && depth === 0) {
+        if (current) names.add(current.replace(/\{.*\}$/s, ""));
+        current = "";
+        continue;
+      }
+      current += ch;
+    }
+    if (current) names.add(current.replace(/\{.*\}$/s, ""));
+    return names;
+  }
+
+  /** Wraps a plausible record in a Proxy that records every top-level property read. */
+  function recordingProxy(base: Record<string, unknown>, reads: Set<string>): Record<string, unknown> {
+    return new Proxy(base, {
+      get(target, prop, receiver) {
+        if (typeof prop === "symbol" || prop === "then" || prop === "toJSON" || prop === "id") {
+          return Reflect.get(target, prop, receiver);
+        }
+        reads.add(prop);
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+  }
+
+  // Plausible values for whatever each handler reads back off its write response,
+  // so handlers don't throw reaching into a nested id/name.
+  const BASE_RECORDS: Record<string, Record<string, unknown>> = {
+    create_matter: {
+      id: 1, display_number: "00001-001", description: "x", status: "open", billable: true,
+      client: { id: 1, name: "Client" },
+      practice_area: { id: 1, name: "Litigation" },
+      responsible_attorney: { id: 1, name: "Attorney" },
+      originating_attorney: { id: 1, name: "Attorney" },
+      client_reference: "ref-1",
+      open_date: "2026-01-01",
+    },
+    create_task: {
+      id: 1, name: "Task", priority: "Normal", due_at: "2026-01-15T00:00:00Z", matter: { id: 9 },
+    },
+    update_task: {
+      id: 1, name: "Task", priority: "Normal", status: "pending", due_at: "2026-01-15T00:00:00Z", matter: { id: 9 },
+    },
+    complete_task: {
+      id: 1, name: "Task", status: "complete", completed_at: "2026-05-22T10:00:00Z", matter: { id: 9 },
+    },
+    create_calendar_entry: {
+      id: 1, summary: "Meeting", description: "x", start_at: "2026-01-01T09:00:00Z", end_at: "2026-01-01T10:00:00Z",
+      matter: { id: 9, display_number: "00001-001" },
+      attendees: [{ id: 5, name: "User" }],
+    },
+    log_time_entry: {
+      id: 1, date: "2026-01-01", quantity_in_hours: 1, price: 100, total: 100, note: "x", non_billable: false,
+      matter: { id: 9, display_number: "00001-001" },
+      user: { id: 5, name: "User" },
+    },
+    create_activity: {
+      id: 1, type: "TimeEntry", date: "2026-01-01", quantity_in_hours: 1, price: 100, total: 100, note: "x", non_billable: false,
+      matter: { id: 9, display_number: "00001-001" },
+      user: { id: 5, name: "User" },
+    },
+    create_note: { id: 1, subject: "x" },
+  };
+
+  it("no write tool reads a property Clio was never asked for", async () => {
+    const offenders: string[] = [];
+
+    for (const tool of WRITE_TOOLS) {
+      if (tool === "upload_document") continue;
+
+      const base = BASE_RECORDS[tool];
+      if (!base) throw new Error(`no BASE_RECORDS entry for write tool "${tool}" — add one`);
+
+      vi.clearAllMocks();
+      primeDefaults();
+
+      const reads = new Set<string>();
+      const proxy = recordingProxy(base, reads);
+      mockClioPost.mockResolvedValue({ data: proxy });
+      mockClioPatch.mockResolvedValue({ data: proxy });
+
+      await handlers[tool](WRITE_ARGS[tool]());
+
+      const calls = [...mockClioPost.mock.calls, ...mockClioPatch.mock.calls];
+      const lastCall = calls.at(-1);
+      expect(lastCall, `${tool} never issued a write`).toBeDefined();
+      const requested = parseTopLevelFields(fieldsOf(lastCall));
+
+      for (const prop of reads) {
+        if (!requested.has(prop)) {
+          offenders.push(`${tool} reads ${prop} but does not request it`);
+        }
+      }
+    }
+
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+});
